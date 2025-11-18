@@ -19,7 +19,7 @@ Cindy Ling	 $0.14 	 $0.17 	 $0.31
 Regino Enriquez	 $0.30 		 $0.30 
 AP Total	 $4.40 	 $3.73 	 $8.13 
 
-The program needs to parameters , the input excel file and the output excel file. it needs to write the output to a new tab in the output excel file,
+The program needs two parameters , the input excel file and the output excel file. it needs to write the output to a new tab in the output excel file,
 
 Use lightweight libraries that easy to depoly and run on Windows laptop.
 

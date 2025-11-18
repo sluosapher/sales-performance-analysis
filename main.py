@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, NamedTuple, Tuple
@@ -37,8 +39,33 @@ class SalesRow(NamedTuple):
     revenue: float
 
 
+class ArgumentError(Exception):
+    pass
+
+
+class PopupArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise ArgumentError(message)
+
+
+def show_error(message: str, title: str = "Sales Report Error") -> None:
+    """Display an error message in a Windows popup, with console fallback."""
+    try:
+        if sys.platform == "win32" and hasattr(ctypes, "windll"):
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                message,
+                title,
+                0x10,  # MB_ICONERROR
+            )
+        else:
+            print(message, file=sys.stderr)
+    except Exception:
+        print(message, file=sys.stderr)
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+    parser = PopupArgumentParser(
         description=(
             "Build a top 10 sales report for each geo group and write the "
             "results to a new worksheet."
@@ -397,4 +424,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except ArgumentError as exc:
+        show_error(f"Invalid arguments:\n{exc}")
+        sys.exit(2)
+    except Exception as exc:
+        show_error(f"Unexpected error:\n{exc}")
+        sys.exit(1)
