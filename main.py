@@ -7,10 +7,12 @@ import ctypes
 import re
 import sys
 from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, NamedTuple, Tuple
+from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 from openpyxl.worksheet.worksheet import Worksheet
 
 TARGET_GEOS = ["AP", "BRAZIL", "EMEA", "LAS", "MX", "NA"]
@@ -25,10 +27,12 @@ DEFAULT_ALL_SHEET_NAME = "Top 10 Sales by Geo"
 DEFAULT_THINKSHIELD_SHEET_NAME = "Top 10 ThinkShield by Geo"
 DEFAULT_TOP_PERCENT_SHEET_NAME = "Top 10% All"
 DEFAULT_TOP_PERCENT_SECURITY_SHEET_NAME = "Top 10% Security"
+SUMMARY_SHEET_NAME = "Summary"
 NUMBER_FORMAT = '[$$-409]#,##0.00'
 THINKSHIELD_VALUE = "ThinkShield Security"
 THINKSHIELD_VALUE_LOWER = THINKSHIELD_VALUE.lower()
 QUARTER_PATTERN = re.compile(r"^FY(?P<year>\d{4})Q(?P<quarter>\d)$")
+RAW_DATA_STEM_PATTERN = re.compile(r"^raw_data_(\d{6})$", re.IGNORECASE)
 
 
 class SalesRow(NamedTuple):
@@ -71,8 +75,16 @@ def parse_args() -> argparse.Namespace:
             "results to a new worksheet."
         )
     )
-    parser.add_argument("input_file", help="Path to the source Excel workbook.")
-    parser.add_argument("output_file", help="Path to the Excel workbook where the report will be written.")
+    parser.add_argument(
+        "paths",
+        nargs="+",
+        help=(
+            "Output file path, optionally preceded by an explicit input file. "
+            "Usage: `main.py [input_file] output_file`. "
+            "If input_file is omitted, the script selects the latest "
+            "raw_data_YYMMDD.xlsx file automatically."
+        ),
+    )
     parser.add_argument(
         "--all-sheet-name",
         default=DEFAULT_ALL_SHEET_NAME,
@@ -96,7 +108,20 @@ def parse_args() -> argparse.Namespace:
             f"(default: {DEFAULT_TOP_PERCENT_SECURITY_SHEET_NAME!r})."
         ),
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if len(args.paths) == 1:
+        input_file = None
+        output_file = args.paths[0]
+    elif len(args.paths) == 2:
+        input_file, output_file = args.paths
+    else:
+        parser.error("Provide either `output_file` or `[input_file] output_file`.")
+
+    args.input_file = input_file
+    args.output_file = output_file
+    delattr(args, "paths")
+    return args
 
 
 def load_sales_data(path: Path) -> Tuple[List[str], List[SalesRow]]:
@@ -191,6 +216,65 @@ def quarter_sort_key(value: str, fallback_index: int) -> Tuple[int, int, int]:
         quarter = int(match.group("quarter"))
         return (0, year, quarter)
     return (1, fallback_index, 0)
+
+
+def extract_timestamp_from_stem(stem: str) -> Optional[str]:
+    match = RAW_DATA_STEM_PATTERN.match(stem)
+    if match:
+        return match.group(1)
+    return None
+
+
+def timestamp_to_date(timestamp: str) -> date:
+    if len(timestamp) != 6:
+        raise ValueError(f"Timestamp must have 6 digits, got {timestamp!r}.")
+    yy = int(timestamp[:2])
+    mm = int(timestamp[2:4])
+    dd = int(timestamp[4:])
+    year = 2000 + yy
+    return date(year, mm, dd)
+
+
+def resolve_path(base_dir: Path, path_str: str) -> Path:
+    path = Path(path_str)
+    if not path.is_absolute():
+        path = base_dir / path
+    return path
+
+
+def find_latest_input_file(explicit: Optional[str], base_dir: Path) -> Tuple[Path, str]:
+    """Return the input workbook path and timestamp derived from its filename."""
+    if explicit:
+        input_path = resolve_path(base_dir, explicit)
+        if not input_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_path}")
+        timestamp = extract_timestamp_from_stem(input_path.stem)
+        if not timestamp:
+            raise ValueError(
+                f"Input file {input_path.name!r} does not match the expected pattern "
+                "'raw_data_YYMMDD.xlsx'."
+            )
+        return input_path, timestamp
+
+    candidates: List[Tuple[date, str, Path]] = []
+    for path in base_dir.glob("raw_data_*.xlsx"):
+        timestamp = extract_timestamp_from_stem(path.stem)
+        if not timestamp:
+            continue
+        try:
+            sort_key = timestamp_to_date(timestamp)
+        except ValueError:
+            continue
+        candidates.append((sort_key, timestamp, path))
+
+    if not candidates:
+        raise FileNotFoundError(
+            "No input workbook found matching pattern 'raw_data_YYMMDD.xlsx'."
+        )
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    _, timestamp, path = candidates[0]
+    return path, timestamp
 
 
 def summarize_sales(
@@ -382,10 +466,51 @@ def write_report(
         current_row += 2  # blank row between geos
 
 
+def ensure_summary_sheet(workbook: Workbook, sheet_name: str) -> Worksheet:
+    """Create or replace the summary worksheet and place it first."""
+    if sheet_name in workbook.sheetnames:
+        del workbook[sheet_name]
+    return workbook.create_sheet(sheet_name, 0)
+
+
+def write_summary_sheet(
+    worksheet: Worksheet,
+    generation_date: str,
+    input_filename: str,
+    sheet_summaries: List[Tuple[str, str]],
+) -> None:
+    """Populate the summary worksheet with metadata and tab descriptions."""
+    title_cell = worksheet.cell(row=1, column=1, value="Sales Performance Analysis Report")
+    title_cell.font = Font(size=24, bold=True)
+
+    generated_cell = worksheet.cell(row=3, column=1, value=f"Generated on: {generation_date}")
+    generated_cell.font = Font(size=16, bold=True)
+
+    input_cell = worksheet.cell(row=4, column=1, value=f"Input data: {input_filename}")
+    input_cell.font = Font(size=16, bold=True)
+
+    header_tab = worksheet.cell(row=6, column=1, value="Tab")
+    header_summary = worksheet.cell(row=6, column=2, value="Summary")
+    header_tab.font = Font(size=20, bold=True)
+    header_summary.font = Font(size=20, bold=True)
+
+    for index, (sheet_name, description) in enumerate(sheet_summaries, start=7):
+        name_cell = worksheet.cell(row=index, column=1, value=sheet_name)
+        summary_cell = worksheet.cell(row=index, column=2, value=description)
+        name_cell.font = Font(size=20)
+        summary_cell.font = Font(size=20)
+
+    worksheet.column_dimensions["A"].width = 28
+    worksheet.column_dimensions["B"].width = 70
+
+
 def main() -> None:
     args = parse_args()
-    input_path = Path(args.input_file)
-    output_path = Path(args.output_file)
+    base_dir = Path.cwd()
+
+    input_path, input_timestamp = find_latest_input_file(args.input_file, base_dir)
+    output_path = resolve_path(base_dir, args.output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     quarters, rows = load_sales_data(input_path)
     if not quarters:
@@ -414,12 +539,39 @@ def main() -> None:
     )
     write_top_percent_sheet(top_percent_security_sheet, quarters, think_summary)
 
+    summary_sheet = ensure_summary_sheet(workbook, SUMMARY_SHEET_NAME)
+    generation_date = datetime.now().strftime("%Y-%m-%d")
+    sheet_descriptions = [
+        (
+            args.all_sheet_name,
+            "Top 10 salespeople per geo across all offerings with quarterly and total revenue.",
+        ),
+        (
+            args.thinkshield_sheet_name,
+            "Top 10 salespeople per geo for the ThinkShield Security offering only.",
+        ),
+        (
+            args.top_percent_sheet_name,
+            "Share of revenue captured by the top 10 sellers versus total sales for AP, EMEA, NA, and OTHERS.",
+        ),
+        (
+            args.top_percent_security_sheet_name,
+            "ThinkShield Security top 10 revenue share compared to totals for AP, EMEA, NA, and OTHERS.",
+        ),
+    ]
+    write_summary_sheet(summary_sheet, generation_date, input_path.name, sheet_descriptions)
+
     workbook.save(output_path)
+    history_suffix = output_path.suffix or ".xlsx"
+    history_name = f"report_history_{input_timestamp}{history_suffix}"
+    history_path = output_path.with_name(history_name)
+    workbook.save(history_path)
     print(
         f"Report written to {output_path} in sheets "
         f"'{args.all_sheet_name}', '{args.thinkshield_sheet_name}', "
         f"'{args.top_percent_sheet_name}', and "
-        f"'{args.top_percent_security_sheet_name}'."
+        f"'{args.top_percent_security_sheet_name}'. "
+        f"History copy saved to {history_path} using input {input_path.name}."
     )
 
 
