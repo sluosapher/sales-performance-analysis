@@ -10,14 +10,21 @@ This tool reads raw sales data from an Excel workbook and generates geo-based �
 From the repository root, run:
 
 ```bash
-python main.py <input.xlsx> <output.xlsx>
+python main.py --output <output.xlsx> [--input <input.xlsx>]
 ```
 
 Examples:
-- `python main.py raw_data_1103.xlsx report.xlsx`
-- `python main.py raw_data_1104.xlsx report.xlsx`
+- `python main.py --input raw_data_1103.xlsx --output report.xlsx`
+- `python main.py --input raw_data_1104.xlsx --output report.xlsx`
+- `python main.py --output output\report.xlsx`  (auto-selects latest `raw_data_YYMMDD.xlsx` from the `input` folder)
 
 If `<output.xlsx>` already exists, the report sheets will be replaced; otherwise a new workbook is created.
+
+### Prepare input data
+- Place your raw Excel workbooks in the `input` folder at the project root (created automatically by `install.ps1`, or you can create it yourself).
+- Name input files using the pattern `raw_data_YYMMDD.xlsx` (for example, `raw_data_251103.xlsx` for 2025‑11‑03); this timestamp is used to pick the latest file and to name history reports.
+- When you omit `--input`, the tool automatically selects the latest `raw_data_YYMMDD.xlsx` from the `input` folder.
+- When you provide `--input` with just a filename (for example, `--input raw_data_251103.xlsx`), the program first looks in `input\` and then in the current directory; you can also pass an absolute or relative path if you store the file elsewhere.
 
 ### Expected Output
 The program writes several worksheets to the output workbook:

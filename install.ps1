@@ -38,21 +38,24 @@ try {
         Pop-Location
     }
 
-    Write-Host "3) Creating input/output folders..." -ForegroundColor Cyan
+    Write-Host "3) Ensuring input/output folders exist..." -ForegroundColor Cyan
     $inputDir = Join-Path $root "input"
     $outputDir = Join-Path $root "output"
-    New-Item -ItemType Directory -Path $inputDir -Force | Out-Null
-    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 
-    Write-Host "4) Running test with raw_data_251103.xlsx..." -ForegroundColor Cyan
-    $sourceInput = Join-Path $root "raw_data_251103.xlsx"
-    if (-not (Test-Path $sourceInput)) {
-        Add-InstallError "Test input file 'raw_data_251103.xlsx' not found in $root."
-        throw "Missing test data"
+    if (-not (Test-Path $inputDir)) {
+        New-Item -ItemType Directory -Path $inputDir -Force | Out-Null
     }
 
+    if (-not (Test-Path $outputDir)) {
+        New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    }
+
+    Write-Host "4) Running test with raw_data_251103.xlsx..." -ForegroundColor Cyan
     $testInput = Join-Path $inputDir "raw_data_251103.xlsx"
-    Copy-Item -Path $sourceInput -Destination $testInput -Force
+    if (-not (Test-Path $testInput)) {
+        Add-InstallError "Test input file 'raw_data_251103.xlsx' not found in $inputDir."
+        throw "Missing test data"
+    }
 
     $testOutput = Join-Path $outputDir "test_output_251103.xlsx"
     if (Test-Path $testOutput) {
@@ -62,7 +65,7 @@ try {
     $testExitCode = 0
     Push-Location $root
     try {
-        uv run python main.py $testInput $testOutput
+        uv run python main.py --input $testInput --output $testOutput
         $testExitCode = $LASTEXITCODE
     }
     finally {
@@ -133,8 +136,31 @@ catch {
 }
 
 Write-Host ""
+Write-Host "6) Creating desktop shortcut..." -ForegroundColor Cyan
+try {
+    $desktopPath = [Environment]::GetFolderPath('Desktop')
+    if ($desktopPath -and (Test-Path $desktopPath)) {
+        $shortcutPath = Join-Path $desktopPath "Sales Performance Analysis.lnk"
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = "uv"
+        $shortcut.Arguments = "run python main.py --output report.xlsx"
+        $shortcut.WorkingDirectory = $root
+        $shortcut.WindowStyle = 1
+        $shortcut.Save()
+        Write-Host "Desktop shortcut created at '$shortcutPath'." -ForegroundColor Green
+    }
+    else {
+        Write-Host "Could not determine Desktop folder; skipping shortcut creation." -ForegroundColor Yellow
+    }
+}
+catch {
+    Write-Host "Failed to create desktop shortcut: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+Write-Host ""
 Write-Host "Installation and test completed successfully." -ForegroundColor Green
 Write-Host "You can now run the program with:" -ForegroundColor Green
-Write-Host "  uv run python main.py input\<your_input.xlsx> output\<your_output.xlsx>" -ForegroundColor Green
+Write-Host "  uv run python main.py --input input\<your_input.xlsx> --output output\<your_output.xlsx>" -ForegroundColor Green
 
 exit 0

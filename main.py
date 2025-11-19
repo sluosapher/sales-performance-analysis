@@ -68,6 +68,22 @@ def show_error(message: str, title: str = "Sales Report Error") -> None:
         print(message, file=sys.stderr)
 
 
+def show_info(message: str, title: str = "Sales Report Complete") -> None:
+    """Display an informational message in a Windows popup, with console fallback."""
+    try:
+        if sys.platform == "win32" and hasattr(ctypes, "windll"):
+            ctypes.windll.user32.MessageBoxW(
+                None,
+                message,
+                title,
+                0x40,  # MB_ICONINFORMATION
+            )
+        else:
+            print(message)
+    except Exception:
+        print(message)
+
+
 def parse_args() -> argparse.Namespace:
     parser = PopupArgumentParser(
         description=(
@@ -76,14 +92,20 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument(
-        "paths",
-        nargs="+",
+        "--input",
+        dest="input_file",
+        metavar="INPUT_XLSX",
         help=(
-            "Output file path, optionally preceded by an explicit input file. "
-            "Usage: `main.py [input_file] output_file`. "
-            "If input_file is omitted, the script selects the latest "
-            "raw_data_YYMMDD.xlsx file automatically."
+            "Path to the input workbook. If omitted, the script selects the "
+            "latest 'raw_data_YYMMDD.xlsx' file from the 'input' folder."
         ),
+    )
+    parser.add_argument(
+        "--output",
+        dest="output_file",
+        metavar="OUTPUT_XLSX",
+        required=True,
+        help="Path to the output workbook that will receive the report sheets.",
     )
     parser.add_argument(
         "--all-sheet-name",
@@ -108,20 +130,7 @@ def parse_args() -> argparse.Namespace:
             f"(default: {DEFAULT_TOP_PERCENT_SECURITY_SHEET_NAME!r})."
         ),
     )
-    args = parser.parse_args()
-
-    if len(args.paths) == 1:
-        input_file = None
-        output_file = args.paths[0]
-    elif len(args.paths) == 2:
-        input_file, output_file = args.paths
-    else:
-        parser.error("Provide either `output_file` or `[input_file] output_file`.")
-
-    args.input_file = input_file
-    args.output_file = output_file
-    delattr(args, "paths")
-    return args
+    return parser.parse_args()
 
 
 def load_sales_data(path: Path) -> Tuple[List[str], List[SalesRow]]:
@@ -235,19 +244,38 @@ def timestamp_to_date(timestamp: str) -> date:
     return date(year, mm, dd)
 
 
-def resolve_path(base_dir: Path, path_str: str) -> Path:
-    path = Path(path_str)
-    if not path.is_absolute():
-        path = base_dir / path
-    return path
+def find_latest_input_file(
+    explicit: Optional[str],
+    base_dir: Path,
+    input_dir: Optional[Path] = None,
+) -> Tuple[Path, str]:
+    """Return the input workbook path and timestamp derived from its filename.
 
+    If ``explicit`` is provided, non-absolute paths without a directory are
+    resolved inside the ``input`` folder by default. If ``explicit`` is
+    omitted, the latest ``raw_data_YYMMDD.xlsx`` file is searched for in the
+    ``input`` subdirectory.
+    """
+    if input_dir is None:
+        input_dir = base_dir / "input"
 
-def find_latest_input_file(explicit: Optional[str], base_dir: Path) -> Tuple[Path, str]:
-    """Return the input workbook path and timestamp derived from its filename."""
     if explicit:
-        input_path = resolve_path(base_dir, explicit)
+        explicit_path = Path(explicit)
+        if explicit_path.is_absolute():
+            input_path = explicit_path
+        else:
+            if explicit_path.parent == Path("."):
+                candidate = input_dir / explicit_path.name
+                if candidate.exists():
+                    input_path = candidate
+                else:
+                    input_path = base_dir / explicit_path
+            else:
+                input_path = base_dir / explicit_path
+
         if not input_path.exists():
             raise FileNotFoundError(f"Input file not found: {input_path}")
+
         timestamp = extract_timestamp_from_stem(input_path.stem)
         if not timestamp:
             raise ValueError(
@@ -256,8 +284,10 @@ def find_latest_input_file(explicit: Optional[str], base_dir: Path) -> Tuple[Pat
             )
         return input_path, timestamp
 
+    input_dir.mkdir(parents=True, exist_ok=True)
+
     candidates: List[Tuple[date, str, Path]] = []
-    for path in base_dir.glob("raw_data_*.xlsx"):
+    for path in input_dir.glob("raw_data_*.xlsx"):
         timestamp = extract_timestamp_from_stem(path.stem)
         if not timestamp:
             continue
@@ -508,8 +538,25 @@ def main() -> None:
     args = parse_args()
     base_dir = Path.cwd()
 
-    input_path, input_timestamp = find_latest_input_file(args.input_file, base_dir)
-    output_path = resolve_path(base_dir, args.output_file)
+    input_dir = base_dir / "input"
+    output_dir = base_dir / "output"
+    input_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    input_path, input_timestamp = find_latest_input_file(
+        args.input_file,
+        base_dir,
+        input_dir=input_dir,
+    )
+
+    output_arg_path = Path(args.output_file)
+    if output_arg_path.is_absolute():
+        output_path = output_arg_path
+    elif output_arg_path.parent == Path("."):
+        output_path = output_dir / output_arg_path.name
+    else:
+        output_path = base_dir / output_arg_path
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     quarters, rows = load_sales_data(input_path)
@@ -566,13 +613,20 @@ def main() -> None:
     history_name = f"report_history_{input_timestamp}{history_suffix}"
     history_path = output_path.with_name(history_name)
     workbook.save(history_path)
-    print(
+    message = (
         f"Report written to {output_path} in sheets "
         f"'{args.all_sheet_name}', '{args.thinkshield_sheet_name}', "
         f"'{args.top_percent_sheet_name}', and "
         f"'{args.top_percent_security_sheet_name}'. "
         f"History copy saved to {history_path} using input {input_path.name}."
     )
+    print(message)
+    popup_message = (
+        "Sales performance report generated successfully.\n\n"
+        f"Output workbook:\n{output_path}\n\n"
+        f"History workbook:\n{history_path}"
+    )
+    show_info(popup_message)
 
 
 if __name__ == "__main__":
