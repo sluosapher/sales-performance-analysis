@@ -5,7 +5,7 @@ from mcp.server.fastmcp.server import FastMCP as Server
 from mcp.server.stdio import stdio_server
 import anyio
 from mcp.server.models import InitializationOptions
-from mcp.types import Tool
+from mcp.types import Tool, Resource
 from collections import defaultdict
 from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple
 from datetime import date # for quarter_sort_key
@@ -484,6 +484,23 @@ def format_result_file(result_path: Path) -> str:
     return "\n".join(output_lines)
 
 app = Server("sales-performance-analysis")
+
+@app.list_resources()
+async def handle_list_resources() -> list[Resource]:
+    """List available resources."""
+    return [
+        Resource(
+            uri="sales://input",
+            name="Sales Data Input",
+            description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)",
+            mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    ]
+
+@app.read_resource()
+async def handle_read_resource(uri: str) -> str | bytes:
+    """Handle resource reading."""
+    return "Use upload-input tool to upload files"
 
 @app.list_tools()
 async def handle_list_tools() -> list[Tool]:
