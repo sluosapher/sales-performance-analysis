@@ -151,6 +151,66 @@ def sort_salespeople(data: Dict[str, Dict[str, Dict[str, float]]], quarters: Lis
         result[geo] = geo_entries[:10]
     return result
 
+def load_or_create_workbook(output_path: Path) -> Workbook:
+    """Load an existing workbook or create a fresh one if it does not exist."""
+    if output_path.exists():
+        return load_workbook(output_path)
+    workbook = Workbook()
+    if workbook.sheetnames:
+        workbook.remove(workbook[workbook.sheetnames[0]])
+    return workbook
+
+def ensure_report_sheet(workbook: Workbook, sheet_name: str) -> Worksheet:
+    """Create or replace a worksheet for the report."""
+    if sheet_name in workbook.sheetnames:
+        del workbook[sheet_name]
+    return workbook.create_sheet(sheet_name)
+
+def write_report(
+    worksheet: Worksheet,
+    quarters: list[str],
+    top_sales: dict[str, list[tuple[str, list[float], float]]],
+) -> None:
+    """Write the geo reports into the worksheet."""
+    has_data = any(top_sales.get(geo) for geo in TARGET_GEOS)
+    if not has_data:
+        worksheet.cell(row=1, column=1, value="No data available.")
+        return
+
+    current_row = 1
+    header = ["Salesperson"] + quarters + ["Total"]
+
+    for geo in TARGET_GEOS:
+        rows = top_sales.get(geo, [])
+        if not rows:
+            continue
+
+        worksheet.cell(row=current_row, column=1, value=geo)
+        current_row += 1
+
+        for col, name in enumerate(header, start=1):
+            worksheet.cell(row=current_row, column=col, value=name)
+        current_row += 1
+
+        geo_totals = [0.0 for _ in header[1:]]  # quarters + total
+
+        for salesperson, quarter_values, total in rows:
+            worksheet.cell(row=current_row, column=1, value=salesperson)
+            for offset, value in enumerate(quarter_values, start=2):
+                cell = worksheet.cell(row=current_row, column=offset, value=value)
+                cell.number_format = NUMBER_FORMAT
+                geo_totals[offset - 2] += value
+            total_cell = worksheet.cell(row=current_row, column=len(header), value=total)
+            total_cell.number_format = NUMBER_FORMAT
+            geo_totals[-1] += total
+            current_row += 1
+
+        worksheet.cell(row=current_row, column=1, value=f"{geo} Total")
+        for offset, value in enumerate(geo_totals, start=2):
+            cell = worksheet.cell(row=current_row, column=offset, value=value)
+            cell.number_format = NUMBER_FORMAT
+        current_row += 2  # blank row between geos
+
 app = Server("sales-performance-analysis")
 
 async def main():
