@@ -342,6 +342,90 @@ def write_summary_sheet(
     worksheet.column_dimensions["A"].width = 28
     worksheet.column_dimensions["B"].width = 70
 
+def extract_timestamp_from_stem(stem: str) -> str | None:
+    RAW_DATA_STEM_PATTERN = re.compile(r"^raw_data_(\d{6})$", re.IGNORECASE)
+    match = RAW_DATA_STEM_PATTERN.match(stem)
+    if match:
+        return match.group(1)
+    return None
+
+def timestamp_to_date(timestamp: str) -> date:
+    if len(timestamp) != 6:
+        raise ValueError(f"Timestamp must have 6 digits, got {timestamp!r}.")
+    yy = int(timestamp[:2])
+    mm = int(timestamp[2:4])
+    dd = int(timestamp[4:])
+    year = 2000 + yy
+    return date(year, mm, dd)
+
+def process_input_file(input_path: Path, output_dir: Path) -> tuple[Path, str]:
+    """Process a single input file and generate result."""
+    input_dir = input_path.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = extract_timestamp_from_stem(input_path.stem)
+    if not timestamp:
+        raise ValueError(
+            f"Input file {input_path.name!r} does not match the expected pattern "
+            "'raw_data_YYMMDD.xlsx'."
+        )
+
+    quarters, rows = load_sales_data(input_path)
+    if not quarters:
+        raise ValueError("No quarter data found in the input workbook.")
+
+    output_filename = f"result_{timestamp}.xlsx"
+    output_path = output_dir / output_filename
+
+    workbook = load_or_create_workbook(output_path)
+
+    all_sheet = ensure_report_sheet(workbook, DEFAULT_ALL_SHEET_NAME)
+    all_summary = summarize_sales(rows)
+    all_top_sales = sort_salespeople(all_summary, quarters)
+    write_report(all_sheet, quarters, all_top_sales)
+
+    think_sheet = ensure_report_sheet(workbook, DEFAULT_THINKSHIELD_SHEET_NAME)
+    think_summary = summarize_sales(
+        rows,
+        offering_filter=lambda entry: entry.offering.lower() == THINKSHIELD_VALUE_LOWER,
+    )
+    think_top_sales = sort_salespeople(think_summary, quarters)
+    write_report(think_sheet, quarters, think_top_sales)
+
+    top_percent_sheet = ensure_report_sheet(workbook, DEFAULT_TOP_PERCENT_SHEET_NAME)
+    write_top_percent_sheet(top_percent_sheet, quarters, all_summary)
+
+    top_percent_security_sheet = ensure_report_sheet(
+        workbook, DEFAULT_TOP_PERCENT_SECURITY_SHEET_NAME
+    )
+    write_top_percent_sheet(top_percent_security_sheet, quarters, think_summary)
+
+    summary_sheet = ensure_summary_sheet(workbook, SUMMARY_SHEET_NAME)
+    from datetime import datetime
+    generation_date = datetime.now().strftime("%Y-%m-%d")
+    sheet_descriptions = [
+        (
+            DEFAULT_ALL_SHEET_NAME,
+            "Top 10 salespeople per geo across all offerings with quarterly and total revenue.",
+        ),
+        (
+            DEFAULT_THINKSHIELD_SHEET_NAME,
+            "Top 10 salespeople per geo for the ThinkShield Security offering only.",
+        ),
+        (
+            DEFAULT_TOP_PERCENT_SHEET_NAME,
+            "Share of revenue captured by the top 10 sellers versus total sales for AP, EMEA, NA, and OTHERS.",
+        ),
+        (
+            DEFAULT_TOP_PERCENT_SECURITY_SHEET_NAME,
+            "ThinkShield Security top 10 revenue share compared to totals for AP, EMEA, NA, and OTHERS.",
+        ),
+    ]
+    write_summary_sheet(summary_sheet, generation_date, input_path.name, sheet_descriptions)
+
+    workbook.save(output_path)
+    return output_path, timestamp
+
 app = Server("sales-performance-analysis")
 
 async def main():
