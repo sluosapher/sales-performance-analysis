@@ -450,6 +450,29 @@ async def handle_list_tools() -> list[Tool]:
                 "required": ["file_name", "content"]
             },
         ),
+        Tool(
+            name="list-results",
+            description="List all available result files",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            },
+        ),
+        Tool(
+            name="get-result",
+            description="Get formatted results from a specific result file",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "Name of the result file (e.g., result_YYMMDD.xlsx)"
+                    }
+                },
+                "required": ["file_name"]
+            },
+        ),
     ]
 
 @app.call_tool()
@@ -493,6 +516,50 @@ async def handle_call_tool(name: str, arguments: dict) -> str:
             )
         except Exception as e:
             return f"Error: Failed to process file: {e}"
+
+    elif name == "list-results":
+        output_dir = Path("output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        result_files = sorted(output_dir.glob("result_*.xlsx"))
+
+        if not result_files:
+            return "No result files found. Upload and process a file first."
+
+        lines = ["Available Result Files:", "=" * 60]
+        for file_path in result_files:
+            stat = file_path.stat()
+            from datetime import datetime
+            mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            size_kb = stat.st_size / 1024
+            lines.append(f"  {file_path.name}")
+            lines.append(f"    Modified: {mod_time}")
+            lines.append(f"    Size: {size_kb:.1f} KB")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    elif name == "get-result":
+        file_name = arguments["file_name"]
+
+        if not file_name.endswith(".xlsx"):
+            return "Error: File must be an Excel .xlsx file"
+
+        if not file_name.startswith("result_"):
+            return "Error: Result file name must start with 'result_'"
+
+        output_dir = Path("output")
+        result_path = output_dir / file_name
+
+        if not result_path.exists():
+            available = [f.name for f in output_dir.glob("result_*.xlsx")]
+            return f"Error: File {file_name} not found.\nAvailable: {', '.join(available)}"
+
+        try:
+            result_text = format_result_file(result_path)
+            return result_text
+        except Exception as e:
+            return f"Error: Failed to format result: {e}"
     # Other tool handlers will go here later
 
 async def main():
