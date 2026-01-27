@@ -13,6 +13,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import re # for QUARTER_PATTERN
 from pathlib import Path # Added missing import
+from openpyxl.styles import Font # Added missing import
 
 TARGET_GEOS = ["AP", "BRAZIL", "EMEA", "LAS", "MX", "NA"]
 REQUIRED_COLUMNS = {
@@ -210,6 +211,136 @@ def write_report(
             cell = worksheet.cell(row=current_row, column=offset, value=value)
             cell.number_format = NUMBER_FORMAT
         current_row += 2  # blank row between geos
+
+def compute_group_totals(
+    summary: Dict[str, Dict[str, Dict[str, float]]],
+    quarters: List[str],
+    geos: Iterable[str],
+) -> Tuple[List[float], float]:
+    """Return per-quarter and grand totals for the specified geo collection."""
+    quarter_totals = [0.0 for _ in quarters]
+    for geo in geos:
+        for quarter_map in summary.get(geo, {}).values():
+            for idx, quarter in enumerate(quarters):
+                quarter_totals[idx] += quarter_map.get(quarter, 0.0)
+    grand_total = sum(quarter_totals)
+    return quarter_totals, grand_total
+
+
+def compute_group_top10_totals(
+    summary: Dict[str, Dict[str, Dict[str, float]]],
+    quarters: List[str],
+    geos: Iterable[str],
+) -> Tuple[List[float], float]:
+    """Aggregate top 10 salesperson revenue by quarter for the geo collection."""
+    entries: List[Tuple[List[float], float]] = []
+    for geo in geos:
+        for quarter_map in summary.get(geo, {}).values():
+            quarter_values = [quarter_map.get(q, 0.0) for q in quarters]
+            total = sum(quarter_values)
+            entries.append((quarter_values, total))
+
+    entries.sort(key=lambda item: item[1], reverse=True)
+    top_entries = entries[:10]
+
+    quarter_totals = [0.0 for _ in quarters]
+    grand_total = 0.0
+    for quarter_values, total in top_entries:
+        for idx, value in enumerate(quarter_values):
+            quarter_totals[idx] += value
+        grand_total += total
+    return quarter_totals, grand_total
+
+
+def write_top_percent_sheet(
+    worksheet: Worksheet,
+    quarters: List[str],
+    summary: Dict[str, Dict[str, Dict[str, float]]],
+) -> None:
+    """Write the Top 10 percentage tables for each geo group."""
+    groups = [
+        ("AP", ["AP"]),
+        ("EMEA", ["EMEA"]),
+        ("NA", ["NA"]),
+    ]
+    other_geos = [geo for geo in TARGET_GEOS if geo not in {"AP", "EMEA", "NA"}]
+    groups.append(("OTHERS", other_geos))
+
+    header = [""] + quarters + ["Grand Total"]
+    current_row = 1
+
+    for group_name, geos in groups:
+        worksheet.cell(row=current_row, column=1, value=group_name)
+        current_row += 1
+
+        for col_idx, label in enumerate(header, start=1):
+            worksheet.cell(row=current_row, column=col_idx, value=label)
+        current_row += 1
+
+        quarter_totals, grand_total = compute_group_totals(summary, quarters, geos)
+        top_quarters, top_grand = compute_group_top10_totals(summary, quarters, geos)
+
+        total_row = ["Sum of Revenue ($M)"] + quarter_totals + [grand_total]
+        top_row = ["Top 10 FTF"] + top_quarters + [top_grand]
+        percent_values = [
+            (top / total) if total else 0.0
+            for top, total in zip(top_row[1:], total_row[1:])
+        ]
+        percent_row = ["Top 10 FTF Rev %"] + percent_values
+
+        for col_idx, value in enumerate(total_row, start=1):
+            cell = worksheet.cell(row=current_row, column=col_idx, value=value)
+            if col_idx > 1:
+                cell.number_format = NUMBER_FORMAT
+        current_row += 1
+
+        for col_idx, value in enumerate(top_row, start=1):
+            cell = worksheet.cell(row=current_row, column=col_idx, value=value)
+            if col_idx > 1:
+                cell.number_format = NUMBER_FORMAT
+        current_row += 1
+
+        for col_idx, value in enumerate(percent_row, start=1):
+            cell = worksheet.cell(row=current_row, column=col_idx, value=value)
+            if col_idx > 1:
+                cell.number_format = "0%"
+        current_row += 2  # blank row between sections
+
+def ensure_summary_sheet(workbook: Workbook, sheet_name: str) -> Worksheet:
+    """Create or replace the summary worksheet and place it first."""
+    if sheet_name in workbook.sheetnames:
+        del workbook[sheet_name]
+    return workbook.create_sheet(sheet_name, 0)
+
+def write_summary_sheet(
+    worksheet: Worksheet,
+    generation_date: str,
+    input_filename: str,
+    sheet_summaries: List[Tuple[str, str]],
+) -> None:
+    """Populate the summary worksheet with metadata and tab descriptions."""
+    title_cell = worksheet.cell(row=1, column=1, value="Sales Performance Analysis Report")
+    title_cell.font = Font(size=24, bold=True)
+
+    generated_cell = worksheet.cell(row=3, column=1, value=f"Generated on: {generation_date}")
+    generated_cell.font = Font(size=16, bold=True)
+
+    input_cell = worksheet.cell(row=4, column=1, value=f"Input data: {input_filename}")
+    input_cell.font = Font(size=16, bold=True)
+
+    header_tab = worksheet.cell(row=6, column=1, value="Tab")
+    header_summary = worksheet.cell(row=6, column=2, value="Summary")
+    header_tab.font = Font(size=20, bold=True)
+    header_summary.font = Font(size=20, bold=True)
+
+    for index, (sheet_name, description) in enumerate(sheet_summaries, start=7):
+        name_cell = worksheet.cell(row=index, column=1, value=sheet_name)
+        summary_cell = worksheet.cell(row=index, column=2, value=description)
+        name_cell.font = Font(size=20)
+        summary_cell.font = Font(size=20)
+
+    worksheet.column_dimensions["A"].width = 28
+    worksheet.column_dimensions["B"].width = 70
 
 app = Server("sales-performance-analysis")
 
