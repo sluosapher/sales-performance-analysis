@@ -428,6 +428,73 @@ def process_input_file(input_path: Path, output_dir: Path) -> tuple[Path, str]:
 
 app = Server("sales-performance-analysis")
 
+@app.list_tools()
+async def handle_list_tools() -> list[Tool]:
+    """List available tools."""
+    return [
+        Tool(
+            name="upload-input",
+            description="Upload an Excel sales data file for processing",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_name": {
+                        "type": "string",
+                        "description": "Name of the uploaded file (must match raw_data_YYMMDD.xlsx pattern)"
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Base64-encoded Excel file content"
+                    }
+                },
+                "required": ["file_name", "content"]
+            },
+        ),
+    ]
+
+@app.call_tool()
+async def handle_call_tool(name: str, arguments: dict) -> str:
+    """Handle tool execution."""
+    import base64
+    # from pathlib import Path  # Already imported
+    # from tempfile import NamedTemporaryFile # Not needed, direct write
+
+    if name == "upload-input":
+        file_name = arguments["file_name"]
+        content = arguments["content"]
+
+        if not file_name.endswith(".xlsx"):
+            return f"Error: File must be an Excel .xlsx file"
+
+        if not extract_timestamp_from_stem(file_name.replace(".xlsx", "")):
+            return f"Error: File name must match pattern raw_data_YYMMDD.xlsx"
+
+        input_dir = Path("input")
+        input_dir.mkdir(parents=True, exist_ok=True)
+
+        input_path = input_dir / file_name
+
+        try:
+            file_content = base64.b64decode(content)
+            with open(input_path, "wb") as f:
+                f.write(file_content)
+        except Exception as e:
+            return f"Error: Failed to save file: {e}"
+
+        try:
+            output_dir = Path("output")
+            output_path, timestamp = process_input_file(input_path, output_dir)
+
+            return (
+                f"File processed successfully!\n"
+                f"Input: {file_name}\n"
+                f"Output: {output_path.name}\n"
+                f"Timestamp: {timestamp}"
+            )
+        except Exception as e:
+            return f"Error: Failed to process file: {e}"
+    # Other tool handlers will go here later
+
 async def main():
     async with stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, InitializationOptions())

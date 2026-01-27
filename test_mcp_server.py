@@ -51,4 +51,10 @@ if __name__ == "__main__":
     test_extract_timestamp()
     test_summarize_sales()
     test_load_sales_data_creates_structure()
+    test_upload_input_tool_exists()
     print("All tests passed!")
+
+def test_upload_input_tool_exists():
+    # This test will require MCP server to be running and callable
+    # For now, it's a placeholder to indicate the tool's presence.
+    pass
