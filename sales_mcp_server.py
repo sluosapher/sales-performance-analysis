@@ -12,6 +12,7 @@ from datetime import date # for quarter_sort_key
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 import re # for QUARTER_PATTERN
+from pathlib import Path # Added missing import
 
 TARGET_GEOS = ["AP", "BRAZIL", "EMEA", "LAS", "MX", "NA"]
 REQUIRED_COLUMNS = {
@@ -122,6 +123,33 @@ def load_sales_data(path: Path) -> Tuple[List[str], List[SalesRow]]:
         return quarters, rows
     finally:
         workbook.close()
+
+def summarize_sales(
+    rows: Iterable[SalesRow],
+    offering_filter: Callable[[SalesRow], bool] | None = None,
+) -> Dict[str, Dict[str, Dict[str, float]]]:
+    """Return nested geo -> salesperson -> quarter -> revenue mapping."""
+    summary: Dict[str, Dict[str, Dict[str, float]]] = {
+        geo: defaultdict(lambda: defaultdict(float)) for geo in TARGET_GEOS
+    }
+    for entry in rows:
+        if offering_filter and not offering_filter(entry):
+            continue
+        summary[entry.geo][entry.salesperson][entry.quarter] += entry.revenue
+    return summary
+
+def sort_salespeople(data: Dict[str, Dict[str, Dict[str, float]]], quarters: List[str]) -> Dict[str, List[Tuple[str, List[float], float]]]:
+    """Prepare the top 10 rows per geo with per-quarter totals."""
+    result: Dict[str, List[Tuple[str, List[float], float]]] = {}
+    for geo in TARGET_GEOS:
+        geo_entries = []
+        for salesperson, quarter_map in data.get(geo, {}).items():
+            quarter_values = [quarter_map.get(q, 0.0) for q in quarters]
+            total = sum(quarter_values)
+            geo_entries.append((salesperson, quarter_values, total))
+        geo_entries.sort(key=lambda item: item[2], reverse=True)
+        result[geo] = geo_entries[:10]
+    return result
 
 app = Server("sales-performance-analysis")
 
