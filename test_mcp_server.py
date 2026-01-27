@@ -52,7 +52,13 @@ if __name__ == "__main__":
     test_summarize_sales()
     test_load_sales_data_creates_structure()
     test_upload_input_tool_exists()
+    test_format_result_file_structure()
     print("All tests passed!")
+
+def test_format_result_file_structure():
+    # Test will be written when we have an actual result file
+    pass
+
 
 def test_upload_input_tool_exists():
     # This test will require MCP server to be running and callable

@@ -426,6 +426,63 @@ def process_input_file(input_path: Path, output_dir: Path) -> tuple[Path, str]:
     workbook.save(output_path)
     return output_path, timestamp
 
+def format_result_file(result_path: Path) -> str:
+    """Format Excel result file into human-readable text with future compatibility."""
+    workbook = load_workbook(result_path, data_only=True, read_only=True)
+    output_lines = []
+
+    output_lines.append("=" * 80)
+    output_lines.append(f"SALES PERFORMANCE ANALYSIS REPORT")
+    output_lines.append(f"File: {result_path.name}")
+    output_lines.append("=" * 80)
+    output_lines.append("")
+
+    for sheet_name in workbook.sheetnames:
+        worksheet = workbook[sheet_name]
+
+        output_lines.append("")
+        output_lines.append("-" * 80)
+        output_lines.append(f"SHEET: {sheet_name}")
+        output_lines.append("-" * 80)
+        output_lines.append("")
+
+        for row in worksheet.iter_rows(values_only=True):
+            if all(cell is None or cell == "" for cell in row):
+                output_lines.append("")
+                continue
+
+            formatted_row = []
+            for cell in row:
+                if cell is None or cell == "":
+                    formatted_row.append("")
+                elif isinstance(cell, (int, float)):
+                    if cell > 1000:
+                        formatted_row.append(f"{cell:,.2f}")
+                    else:
+                        formatted_row.append(f"{cell:.2f}")
+                else:
+                    formatted_row.append(str(cell))
+
+            output_lines.append("  " + " | ".join(formatted_row))
+
+        output_lines.append("")
+
+    workbook.close()
+
+    structured_data = {
+        "text": "\n".join(output_lines),
+        "structured": {
+            "sheets": [],
+            "metadata": {
+                "file_name": result_path.name,
+                "sheet_count": len(workbook.sheetnames)
+            }
+        },
+        "ui_resources": []
+    }
+
+    return "\n".join(output_lines)
+
 app = Server("sales-performance-analysis")
 
 @app.list_tools()
