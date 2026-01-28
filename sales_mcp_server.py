@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from mcp.server.fastmcp.server import FastMCP as Server
-from mcp.server.stdio import stdio_server
-import anyio
-from mcp.server.models import InitializationOptions
+from fastmcp import FastMCP
 import re # for QUARTER_PATTERN
 from collections import defaultdict
 from pathlib import Path # Added missing import
@@ -490,162 +487,95 @@ def format_result_file(result_path: Path) -> str:
 
     return "\n".join(output_lines)
 
-app = Server("sales-performance-analysis")
+app = FastMCP("sales-performance-analysis")
 
-@app.list_resources()
-async def handle_list_resources() -> list[Resource]:
-    """List available resources."""
-    return [
-        Resource(
-            uri="sales://input",
-            name="Sales Data Input",
-            description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)",
-            mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ),
-    ]
-
-@app.read_resource()
-async def handle_read_resource(uri: str) -> str | bytes:
-    """Handle resource reading."""
+@app.resource(uri="sales://input", name="Sales Data Input", description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+async def get_sales_input() -> str:
+    """Resource for sales data input endpoint."""
     return "Use upload-input tool to upload files"
 
-@app.list_tools()
-async def handle_list_tools() -> list[Tool]:
-    """List available tools."""
-    return [
-        Tool(
-            name="upload-input",
-            description="Upload an Excel sales data file for processing",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_name": {
-                        "type": "string",
-                        "description": "Name of the uploaded file (must match raw_data_YYMMDD.xlsx pattern)"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Base64-encoded Excel file content"
-                    }
-                },
-                "required": ["file_name", "content"]
-            },
-        ),
-        Tool(
-            name="list-results",
-            description="List all available result files",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "required": []
-            },
-        ),
-        Tool(
-            name="get-result",
-            description="Get formatted results from a specific result file",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_name": {
-                        "type": "string",
-                        "description": "Name of the result file (e.g., result_YYMMDD.xlsx)"
-                    }
-                },
-                "required": ["file_name"]
-            },
-        ),
-    ]
-
-@app.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> str:
-    """Handle tool execution."""
+@app.tool(name="upload-input")
+async def upload_input(file_name: str, content: str) -> str:
+    """Upload an Excel sales data file for processing."""
     import base64
-    # from pathlib import Path  # Already imported
-    # from tempfile import NamedTemporaryFile # Not needed, direct write
 
-    if name == "upload-input":
-        file_name = arguments["file_name"]
-        content = arguments["content"]
+    if not file_name.endswith(".xlsx"):
+        return f"Error: File must be an Excel .xlsx file"
 
-        if not file_name.endswith(".xlsx"):
-            return f"Error: File must be an Excel .xlsx file"
+    if not extract_timestamp_from_stem(file_name.replace(".xlsx", "")):
+        return f"Error: File name must match pattern raw_data_YYMMDD.xlsx"
 
-        if not extract_timestamp_from_stem(file_name.replace(".xlsx", "")):
-            return f"Error: File name must match pattern raw_data_YYMMDD.xlsx"
+    input_dir = Path("input")
+    input_dir.mkdir(parents=True, exist_ok=True)
 
-        input_dir = Path("input")
-        input_dir.mkdir(parents=True, exist_ok=True)
+    input_path = input_dir / file_name
 
-        input_path = input_dir / file_name
+    try:
+        file_content = base64.b64decode(content)
+        with open(input_path, "wb") as f:
+            f.write(file_content)
+    except Exception as e:
+        return f"Error: Failed to save file: {e}"
 
-        try:
-            file_content = base64.b64decode(content)
-            with open(input_path, "wb") as f:
-                f.write(file_content)
-        except Exception as e:
-            return f"Error: Failed to save file: {e}"
-
-        try:
-            output_dir = Path("output")
-            output_path, timestamp = process_input_file(input_path, output_dir)
-
-            return (
-                f"File processed successfully!\n"
-                f"Input: {file_name}\n"
-                f"Output: {output_path.name}\n"
-                f"Timestamp: {timestamp}"
-            )
-        except Exception as e:
-            return f"Error: Failed to process file: {e}"
-
-    elif name == "list-results":
+    try:
         output_dir = Path("output")
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path, timestamp = process_input_file(input_path, output_dir)
 
-        result_files = sorted(output_dir.glob("result_*.xlsx"))
+        return (
+            f"File processed successfully!\n"
+            f"Input: {file_name}\n"
+            f"Output: {output_path.name}\n"
+            f"Timestamp: {timestamp}"
+        )
+    except Exception as e:
+        return f"Error: Failed to process file: {e}"
 
-        if not result_files:
-            return "No result files found. Upload and process a file first."
+@app.tool(name="list-results")
+async def list_results() -> str:
+    """List all available result files."""
+    output_dir = Path("output")
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-        lines = ["Available Result Files:", "=" * 60]
-        for file_path in result_files:
-            stat = file_path.stat()
-            from datetime import datetime
-            mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-            size_kb = stat.st_size / 1024
-            lines.append(f"  {file_path.name}")
-            lines.append(f"    Modified: {mod_time}")
-            lines.append(f"    Size: {size_kb:.1f} KB")
-            lines.append("")
+    result_files = sorted(output_dir.glob("result_*.xlsx"))
 
-        return "\n".join(lines)
+    if not result_files:
+        return "No result files found. Upload and process a file first."
 
-    elif name == "get-result":
-        file_name = arguments["file_name"]
+    lines = ["Available Result Files:", "=" * 60]
+    for file_path in result_files:
+        stat = file_path.stat()
+        from datetime import datetime
+        mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        size_kb = stat.st_size / 1024
+        lines.append(f"  {file_path.name}")
+        lines.append(f"    Modified: {mod_time}")
+        lines.append(f"    Size: {size_kb:.1f} KB")
+        lines.append("")
 
-        if not file_name.endswith(".xlsx"):
-            return "Error: File must be an Excel .xlsx file"
+    return "\n".join(lines)
 
-        if not file_name.startswith("result_"):
-            return "Error: Result file name must start with 'result_'"
+@app.tool(name="get-result")
+async def get_result(file_name: str) -> str:
+    """Get formatted results from a specific result file."""
+    if not file_name.endswith(".xlsx"):
+        return "Error: File must be an Excel .xlsx file"
 
-        output_dir = Path("output")
-        result_path = output_dir / file_name
+    if not file_name.startswith("result_"):
+        return "Error: Result file name must start with 'result_'"
 
-        if not result_path.exists():
-            available = [f.name for f in output_dir.glob("result_*.xlsx")]
-            return f"Error: File {file_name} not found.\nAvailable: {', '.join(available)}"
+    output_dir = Path("output")
+    result_path = output_dir / file_name
 
-        try:
-            result_text = format_result_file(result_path)
-            return result_text
-        except Exception as e:
-            return f"Error: Failed to format result: {e}"
-    # Other tool handlers will go here later
+    if not result_path.exists():
+        available = [f.name for f in output_dir.glob("result_*.xlsx")]
+        return f"Error: File {file_name} not found.\nAvailable: {', '.join(available)}"
 
-async def main():
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, InitializationOptions())
+    try:
+        result_text = format_result_file(result_path)
+        return result_text
+    except Exception as e:
+        return f"Error: Failed to format result: {e}"
+
 
 if __name__ == "__main__":
-    anyio.run(main)
+    app.run(transport="http", host="0.0.0.0", port=8003)

@@ -139,3 +139,9 @@ The application follows a clear data flow from input to output:
 - Keep data loading/writing, transformation logic, and configuration clearly separated
 - Follow existing function naming: snake_case for functions, CapWords for classes
 - When adding tests, place under `tests/` directory as `test_*.py`
+
+## Library Documentation Protocols
+- **Always Verify SDKs:** Before implementing features for [Library Name, e.g., OpenAI, Stripe, or LangChain], you MUST use the `context7` tool to fetch the latest documentation.
+- **Reference Latest Docs:** Use the `get-library-docs` tool to check for breaking changes if the version in `package.json` is newer than 2024.
+- **Fallthrough:** If a library is not found in Context7, use `git-mcp` to pull the `/docs` folder or `README.md` from the official GitHub repository.
+- **Validation:** Do not use deprecated methods. If the agent's internal knowledge conflicts with the fetched documentation, prioritize the fetched documentation.
