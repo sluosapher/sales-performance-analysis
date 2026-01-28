@@ -1,19 +1,26 @@
 """MCP Server for Sales Performance Analysis."""
 
+from __future__ import annotations
+
 import asyncio
 from mcp.server.fastmcp.server import FastMCP as Server
 from mcp.server.stdio import stdio_server
 import anyio
 from mcp.server.models import InitializationOptions
-from mcp.types import Tool, Resource
+import re # for QUARTER_PATTERN
 from collections import defaultdict
-from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Tuple
+from pathlib import Path # Added missing import
+from typing import TYPE_CHECKING, NamedTuple, Callable, Dict, Iterable, List, Optional, Tuple
 from datetime import date # for quarter_sort_key
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
-import re # for QUARTER_PATTERN
-from pathlib import Path # Added missing import
 from openpyxl.styles import Font # Added missing import
+
+if TYPE_CHECKING:
+    from openpyxl import Workbook
+    from openpyxl.worksheet.worksheet import Worksheet
+
+from mcp.types import Tool, Resource
 
 TARGET_GEOS = ["AP", "BRAZIL", "EMEA", "LAS", "MX", "NA"]
 REQUIRED_COLUMNS = {
