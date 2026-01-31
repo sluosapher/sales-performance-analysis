@@ -497,38 +497,17 @@ async def get_sales_input() -> str:
 @app.tool(name="upload-input")
 async def upload_input(file_name: str, content: str) -> str:
     """Upload an Excel sales data file for processing."""
-    import base64
-
     if not file_name.endswith(".xlsx"):
         return f"Error: File must be an Excel .xlsx file"
 
     if not extract_timestamp_from_stem(file_name.replace(".xlsx", "")):
         return f"Error: File name must match pattern raw_data_YYMMDD.xlsx"
 
-    input_dir = Path("input")
-    input_dir.mkdir(parents=True, exist_ok=True)
-
-    input_path = input_dir / file_name
-
-    try:
-        file_content = base64.b64decode(content)
-        with open(input_path, "wb") as f:
-            f.write(file_content)
-    except Exception as e:
-        return f"Error: Failed to save file: {e}"
-
-    try:
-        output_dir = Path("output")
-        output_path, timestamp = process_input_file(input_path, output_dir)
-
-        return (
-            f"File processed successfully!\n"
-            f"Input: {file_name}\n"
-            f"Output: {output_path.name}\n"
-            f"Timestamp: {timestamp}"
-        )
-    except Exception as e:
-        return f"Error: Failed to process file: {e}"
+    return (
+        f"File upload requested for: {file_name}\n"
+        f"Please visit: http://localhost:8004/upload\n"
+        f"Use the web interface to upload your file and view results."
+    )
 
 @app.tool(name="list-results")
 async def list_results() -> str:
