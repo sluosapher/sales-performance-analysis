@@ -578,4 +578,18 @@ async def get_result(file_name: str) -> str:
 
 
 if __name__ == "__main__":
+    # Start both MCP server and web interface
+    import threading
+
+    # Start Flask web server in a separate thread
+    def run_web_server():
+        import web_routes
+        web_routes.app.run(host="0.0.0.0", port=8004, debug=False, use_reloader=False)
+
+    web_thread = threading.Thread(target=run_web_server, daemon=True)
+    web_thread.start()
+
+    # Start MCP server
+    print("Starting MCP server on port 8003...")
+    print("Starting web interface on port 8004...")
     app.run(transport="http", host="0.0.0.0", port=8003)
