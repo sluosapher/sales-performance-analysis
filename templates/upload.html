@@ -9,15 +9,25 @@
 <body>
     <div class="container">
         <h1>Sales Performance Analysis</h1>
+        <div class="api-key-display">
+            <p><strong>API Key:</strong> {% if auth_header %}{{ auth_header }}{% else %}no api key is found{% endif %}</p>
+        </div>
         <div class="upload-section">
             <h2>Upload Sales Data</h2>
             <p>Upload an Excel file with sales data (format: raw_data_YYMMDD.xlsx)</p>
-            <form action="/upload" method="post" enctype="multipart/form-data">
+            <form action="/upload" method="post" enctype="multipart/form-data" onsubmit="handleSubmit()">
                 <div class="form-group">
                     <input type="file" name="file" id="file" accept=".xlsx" required>
                 </div>
-                <button type="submit" class="btn-primary">Upload and Process</button>
+                <button type="submit" class="btn-primary" id="submit-btn">Upload and Process</button>
             </form>
+            <script>
+                function handleSubmit() {
+                    const btn = document.getElementById('submit-btn');
+                    btn.disabled = true;
+                    btn.textContent = 'Processing...';
+                }
+            </script>
         </div>
         <div class="info-section">
             <h3>Requirements:</h3>

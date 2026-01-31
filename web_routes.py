@@ -8,6 +8,7 @@ from flask import (
     url_for,
     send_file,
     flash,
+    jsonify,
 )
 from pathlib import Path
 import tempfile
@@ -22,6 +23,19 @@ from sales_mcp_server import (
     format_result_file,
     extract_timestamp_from_stem,
 )
+
+# Global variable to store the latest Authorization header
+_latest_auth_header = None
+
+def get_latest_auth_header():
+    """Return the latest captured Authorization header."""
+    global _latest_auth_header
+    return _latest_auth_header
+
+def set_latest_auth_header(header):
+    """Set the latest Authorization header."""
+    global _latest_auth_header
+    _latest_auth_header = header
 
 ALLOWED_EXTENSIONS = {"xlsx"}
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB
@@ -39,9 +53,20 @@ def index():
     """Render the upload page."""
     return render_template("upload.html")
 
-@app.route("/upload", methods=["POST"])
+@app.route("/upload", methods=["GET", "POST"])
 def upload_file():
+    if request.method == "GET":
+        # Handle GET request by rendering the upload page
+        auth_header = request.headers.get("Authorization")
+        set_latest_auth_header(auth_header)
+        return render_template("upload.html", auth_header=auth_header)
+
+    # POST request handling continues below
     """Handle file upload and processing."""
+
+    # Capture Authorization header if present
+    auth_header = request.headers.get("Authorization")
+    set_latest_auth_header(auth_header)
     if "file" not in request.files:
         return render_template(
             "error.html",

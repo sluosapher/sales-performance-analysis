@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_headers
 import re # for QUARTER_PATTERN
 from collections import defaultdict
 from pathlib import Path # Added missing import
@@ -487,6 +488,29 @@ def format_result_file(result_path: Path) -> str:
 
     return "\n".join(output_lines)
 
+API_TOKEN = "1234567890"
+
+def verify_authorization() -> str:
+    """Verify the Authorization header and return the token or error message."""
+    headers = get_http_headers()
+    auth = headers.get("authorization") or headers.get("Authorization")
+
+    if not auth:
+        print("no api key is found")
+        return "no api key is found"
+
+    if auth.startswith("Bearer "):
+        token = auth.removeprefix("Bearer ").strip()
+    else:
+        token = auth.strip()
+
+    print(f"token: {token}")
+
+    if token == API_TOKEN:
+        return f"valid token: {token}"
+    else:
+        return f"invalid token: {token}"
+
 app = FastMCP("sales-performance-analysis")
 
 @app.resource(uri="sales://input", name="Sales Data Input", description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
@@ -495,18 +519,18 @@ async def get_sales_input() -> str:
     return "Use upload-input tool to upload files"
 
 @app.tool(name="upload-input")
-async def upload_input(file_name: str, content: str) -> str:
-    """Upload an Excel sales data file for processing."""
-    if not file_name.endswith(".xlsx"):
-        return f"Error: File must be an Excel .xlsx file"
+async def upload_input() -> str:
+    """Get link to upload Excel sales data file for processing."""
 
-    if not extract_timestamp_from_stem(file_name.replace(".xlsx", "")):
-        return f"Error: File name must match pattern raw_data_YYMMDD.xlsx"
-
+    # verify the authorization token
+    auth_result = verify_authorization()
+    if auth_result != "valid token: 1234567890":
+        return "Authorization failed: " + auth_result
+    
     return (
-        f"File upload requested for: {file_name}\n"
-        f"Please visit: http://localhost:8004/upload\n"
-        f"Use the web interface to upload your file and view results."
+        f"Please visit: http://localhost:8004/\n"
+        f"Use the web interface to upload your raw_data_YYMMDD.xlsx file and view results.\n\n"
+        f"Authorization token: 1234567890"
     )
 
 @app.tool(name="list-results")
@@ -526,7 +550,9 @@ async def list_results() -> str:
         from datetime import datetime
         mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         size_kb = stat.st_size / 1024
+        # Add download link
         lines.append(f"  {file_path.name}")
+        lines.append(f"    Download: http://localhost:8004/download/{file_path.name}")
         lines.append(f"    Modified: {mod_time}")
         lines.append(f"    Size: {size_kb:.1f} KB")
         lines.append("")

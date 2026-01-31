@@ -13,9 +13,10 @@
             <p><strong>Input File:</strong> {{ filename }}</p>
             <p><strong>Timestamp:</strong> {{ timestamp }}</p>
             <p><strong>Generated:</strong> {{ generated_date }}</p>
+            <p><strong>Excel Report:</strong> <a href="/download/{{ result_filename }}" style="color: #2196F3;">{{ result_filename }}</a></p>
         </div>
         <div class="download-section">
-            <a href="/download/{{ filename }}" class="btn-primary">Download Excel Report</a>
+            <a href="/download/{{ result_filename }}" class="btn-primary">Download Excel Report</a>
             <a href="/" class="btn-secondary">Upload Another File</a>
         </div>
         <div class="results-section">
