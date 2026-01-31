@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Data Upload</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Sales Performance Analysis</h1>
+        <div class="upload-section">
+            <h2>Upload Sales Data</h2>
+            <p>Upload an Excel file with sales data (format: raw_data_YYMMDD.xlsx)</p>
+            <form action="/upload" method="post" enctype="multipart/form-data">
+                <div class="form-group">
+                    <input type="file" name="file" id="file" accept=".xlsx" required>
+                </div>
+                <button type="submit" class="btn-primary">Upload and Process</button>
+            </form>
+        </div>
+        <div class="info-section">
+            <h3>Requirements:</h3>
+            <ul>
+                <li>File must be in .xlsx format</li>
+                <li>Filename must match pattern: raw_data_YYMMDD.xlsx</li>
+                <li>Expected columns: Geo, FTF_Name, Quarter, Revenue ($M), oh_l3_sub_offering</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

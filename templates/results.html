@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Analysis Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Sales Performance Analysis Results</h1>
+        <div class="result-info">
+            <p><strong>Input File:</strong> {{ filename }}</p>
+            <p><strong>Timestamp:</strong> {{ timestamp }}</p>
+            <p><strong>Generated:</strong> {{ generated_date }}</p>
+        </div>
+        <div class="download-section">
+            <a href="/download/{{ filename }}" class="btn-primary">Download Excel Report</a>
+            <a href="/" class="btn-secondary">Upload Another File</a>
+        </div>
+        <div class="results-section">
+            <h2>Report Summary</h2>
+            <div class="text-results">
+                <pre>{{ results_text }}</pre>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
