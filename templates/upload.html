@@ -1,42 +1,28 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sales Data Upload</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <div class="container">
-        <h1>Sales Performance Analysis</h1>
-        <div class="api-key-display">
-            <p><strong>API Key:</strong> {% if auth_header %}{{ auth_header }}{% else %}no api key is found{% endif %}</p>
-        </div>
-        <div class="upload-section">
-            <h2>Upload Sales Data</h2>
-            <p>Upload an Excel file with sales data (format: raw_data_YYMMDD.xlsx)</p>
-            <form action="/upload" method="post" enctype="multipart/form-data" onsubmit="handleSubmit()">
-                <div class="form-group">
-                    <input type="file" name="file" id="file" accept=".xlsx" required>
-                </div>
-                <button type="submit" class="btn-primary" id="submit-btn">Upload and Process</button>
-            </form>
-            <script>
-                function handleSubmit() {
-                    const btn = document.getElementById('submit-btn');
-                    btn.disabled = true;
-                    btn.textContent = 'Processing...';
-                }
-            </script>
-        </div>
-        <div class="info-section">
-            <h3>Requirements:</h3>
-            <ul>
-                <li>File must be in .xlsx format</li>
-                <li>Filename must match pattern: raw_data_YYMMDD.xlsx</li>
-                <li>Expected columns: Geo, FTF_Name, Quarter, Revenue ($M), oh_l3_sub_offering</li>
-            </ul>
+{% extends "base.html" %}
+
+{% block title %}Upload Sales Data - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="text-center">Upload Sales Data File</h3>
+            </div>
+            <div class="card-body">
+                <p class="card-text">Upload your raw sales data Excel file here. The filename must match the pattern <code>raw_data_YYMMDD.xlsx</code> (e.g., <code>raw_data_251103.xlsx</code>).</p>
+                <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+                    {{ form.hidden_tag() }}
+                    <div class="mb-3">
+                        <label for="file" class="form-label">Choose Excel File (.xlsx)</label>
+                        <input class="form-control" type="file" id="file" name="file" accept=".xlsx" required>
+                    </div>
+                    <div class="d-grid">
+                        {{ form.submit(class="btn btn-primary") }}
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}User Management - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>User Management</h2>
+    <a href="{{ url_for('admin_add_user') }}" class="btn btn-primary">Add User</a>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Upload</th>
+                    <th>List</th>
+                    <th>Created</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.role|title }}</td>
+                    <td>
+                        <span class="badge bg-{{ 'success' if user.can_upload else 'secondary' }}">
+                            {{ 'Yes' if user.can_upload else 'No' }}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge bg-{{ 'success' if user.can_list_results else 'secondary' }}">
+                            {{ 'Yes' if user.can_list_results else 'No' }}
+                        </span>
+                    </td>
+                    <td>{{ user.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ user.last_login.strftime('%Y-%m-%d') if user.last_login else 'Never' }}</td>
+                    <td>
+                        <a href="{{ url_for('admin_edit_user', user_id=user.id) }}" class="btn btn-sm btn-info">Edit</a>
+                        <a href="{{ url_for('admin_reset_password', user_id=user.id) }}" class="btn btn-sm btn-warning">Reset Password</a>
+                        <form method="POST" action="{{ url_for('admin_regenerate_token', user_id=user.id) }}" style="display: inline;">
+                            <button type="submit" class="btn btn-sm btn-secondary">Regenerate Token</button>
+                        </form>
+                        {% if user.id != current_user.id %}
+                        <a href="{{ url_for('admin_delete_user', user_id=user.id) }}" class="btn btn-sm btn-danger">Delete</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -1,21 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Error - Sales Analysis</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body>
-    <div class="container">
-        <h1>Error Occurred</h1>
-        <div class="error-message">
-            <h2>{{ error_title }}</h2>
+{% extends "base.html" %}
+
+{% block title %}{{ error_title }} - {{ super() }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="alert alert-warning" role="alert">
+            <h4 class="alert-heading">{{ error_title }}</h4>
             <p>{{ error_message }}</p>
-        </div>
-        <div class="actions">
-            <a href="/" class="btn-primary">Try Again</a>
+            <hr>
+            <p class="mb-0">
+                <a href="{{ url_for('index') }}" class="btn btn-primary">Go Home</a>
+                {% if current_user.is_authenticated %}
+                <a href="{{ url_for('profile') }}" class="btn btn-secondary">View Profile</a>
+                {% endif %}
+            </p>
         </div>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}

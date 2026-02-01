@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from openpyxl.worksheet.worksheet import Worksheet
 
 from mcp.types import Tool, Resource
+from models import User # Import the User model
 
 TARGET_GEOS = ["AP", "BRAZIL", "EMEA", "LAS", "MX", "NA"]
 REQUIRED_COLUMNS = {
@@ -488,8 +489,6 @@ def format_result_file(result_path: Path) -> str:
 
     return "\n".join(output_lines)
 
-API_TOKEN = "1234567890"
-
 def verify_authorization() -> str:
     """Verify the Authorization header and return the token or error message."""
     headers = get_http_headers()
@@ -506,36 +505,46 @@ def verify_authorization() -> str:
 
     print(f"token: {token}")
 
-    if token == API_TOKEN:
-        return f"valid token: {token}"
+    # Check token against database
+    from app import app as flask_app # Import Flask app for context
+    with flask_app.app_context(): # Use the Flask app context for SQLAlchemy
+        user = User.query.filter_by(secret_token=token).first()
+
+    if user:
+        return f"valid token for user: {user.username}"
     else:
         return f"invalid token: {token}"
 
-app = FastMCP("sales-performance-analysis")
 
-@app.resource(uri="sales://input", name="Sales Data Input", description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+mcp_app = FastMCP("sales-performance-analysis")
+
+@mcp_app.resource(uri="sales://input", name="Sales Data Input", description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 async def get_sales_input() -> str:
     """Resource for sales data input endpoint."""
     return "Use upload-input tool to upload files"
 
-@app.tool(name="upload-input")
+@mcp_app.tool(name="upload-input")
 async def upload_input() -> str:
     """Get link to upload Excel sales data file for processing."""
 
     # verify the authorization token
     auth_result = verify_authorization()
-    if auth_result != "valid token: 1234567890":
+    if not auth_result.startswith("valid token"): # Check for valid token string
         return "Authorization failed: " + auth_result
-    
+
     return (
         f"Please visit: http://localhost:8004/\n"
         f"Use the web interface to upload your raw_data_YYMMDD.xlsx file and view results.\n\n"
-        f"Authorization token: 1234567890"
+        f"Authorization token: A valid per-user token is required to use this tool with external agents."
     )
 
-@app.tool(name="list-results")
+@mcp_app.tool(name="list-results")
 async def list_results() -> str:
     """List all available result files."""
+    auth_result = verify_authorization()
+    if not auth_result.startswith("valid token"): # Check for valid token string
+        return "Authorization failed: " + auth_result
+
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -552,16 +561,20 @@ async def list_results() -> str:
         size_kb = stat.st_size / 1024
         # Add download link
         lines.append(f"  {file_path.name}")
-        lines.append(f"    Download: http://localhost:8004/download/{file_path.name}")
+        lines.append(f"    View/Download: http://localhost:8004/view-result/{file_path.name}")
         lines.append(f"    Modified: {mod_time}")
         lines.append(f"    Size: {size_kb:.1f} KB")
         lines.append("")
 
     return "\n".join(lines)
 
-@app.tool(name="get-result")
+@mcp_app.tool(name="get-result")
 async def get_result(file_name: str) -> str:
     """Get formatted results from a specific result file."""
+    auth_result = verify_authorization()
+    if not auth_result.startswith("valid token"): # Check for valid token string
+        return "Authorization failed: " + auth_result
+
     if not file_name.endswith(".xlsx"):
         return "Error: File must be an Excel .xlsx file"
 
@@ -583,18 +596,8 @@ async def get_result(file_name: str) -> str:
 
 
 if __name__ == "__main__":
-    # Start both MCP server and web interface
-    import threading
-
-    # Start Flask web server in a separate thread
-    def run_web_server():
-        import web_routes
-        web_routes.app.run(host="0.0.0.0", port=8004, debug=False, use_reloader=False)
-
-    web_thread = threading.Thread(target=run_web_server, daemon=True)
-    web_thread.start()
-
-    # Start MCP server
-    print("Starting MCP server on port 8003...")
-    print("Starting web interface on port 8004...")
-    app.run(transport="http", host="0.0.0.0", port=8003)
+    # The MCP app is now used like this:
+    # mcp_app.run(transport="http", host="0.0.0.0", port=8003)
+    # It's started by the Flask app (app.py) in a separate thread.
+    # This __main__ block is intentionally left blank for the MCP server when run standalone
+    pass
