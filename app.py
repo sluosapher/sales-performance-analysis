@@ -300,8 +300,8 @@ def upload_file():
     if file and allowed_file(file.filename):
         # Validate filename pattern
         if not extract_timestamp_from_stem(file.filename.replace(".xlsx", "")):
-            flash(f"Filename must match pattern: raw_data_YYMMDD.xlsx. Got: {file.filename}", 'danger')
-            return redirect(url_for('error', error_title="Invalid Filename", error_message=f"Filename must match pattern: raw_data_YYMMDD.xlsx. Got: {file.filename}"))
+            flash(f"Filename must match pattern: raw_data_YYYYMMDD.xlsx. Got: {file.filename}", 'danger')
+            return redirect(url_for('error', error_title="Invalid Filename", error_message=f"Filename must match pattern: raw_data_YYYYMMDD.xlsx. Got: {file.filename}"))
 
         try:
             # Save uploaded file to temporary location
@@ -343,8 +343,8 @@ def upload_file():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
     else:
-        flash("Please upload an Excel file (.xlsx) with the correct filename pattern (raw_data_YYMMDD.xlsx).", 'danger')
-        return redirect(url_for('error', error_title="Invalid File Type", error_message="Please upload an Excel file (.xlsx) with the correct filename pattern (raw_data_YYMMDD.xlsx)."))
+        flash("Please upload an Excel file (.xlsx) with the correct filename pattern (raw_data_YYYYMMDD.xlsx).", 'danger')
+        return redirect(url_for('error', error_title="Invalid File Type", error_message="Please upload an Excel file (.xlsx) with the correct filename pattern (raw_data_YYYYMMDD.xlsx)."))
 
 @app.route("/list-results")
 @login_required

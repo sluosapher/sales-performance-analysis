@@ -11,13 +11,13 @@ This MCP server processes Excel sales data files and generates formatted reports
 Upload an Excel sales data file for processing.
 
 **Parameters:**
-- `file_name` (string, required): Name of file (must match `raw_data_YYMMDD.xlsx`)
+- `file_name` (string, required): Name of file (must match `raw_data_YYYYMMDD.xlsx`)
 - `content` (string, required): Base64-encoded Excel file content
 
 **Example:**
 ```python
 {
-  "file_name": "raw_data_251103.xlsx",
+  "file_name": "raw_data_20251103.xlsx",
   "content": "UEsDBBQABgAIAAAAIQCL1rvzRwEAABAE..."
 }
 ```
@@ -25,9 +25,9 @@ Upload an Excel sales data file for processing.
 **Response:**
 ```
 File processed successfully!
-Input: raw_data_251103.xlsx
-Output: result_251103.xlsx
-Timestamp: 251103
+Input: raw_data_20251103.xlsx
+Output: result_20251103.xlsx
+Timestamp: 20251103
 ```
 
 ### 2. list-results
@@ -44,7 +44,7 @@ List all available result files.
 ```
 Available Result Files:
 ============================================================
-  result_251103.xlsx
+  result_20251103.xlsx
     Modified: 2026-01-27 15:30:00
     Size: 45.2 KB
 ```
@@ -58,7 +58,7 @@ Get formatted results from a specific result file.
 **Example:**
 ```python
 {
-  "file_name": "result_251103.xlsx"
+  "file_name": "result_20251103.xlsx"
 }
 ```
 
@@ -66,7 +66,7 @@ Get formatted results from a specific result file.
 ```
 ================================================================================
 SALES PERFORMANCE ANALYSIS REPORT
-File: result_251103.xlsx
+File: result_20251103.xlsx
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -77,13 +77,40 @@ SHEET: Top 10 Sales by Geo
   ...
 ```
 
+### 4. get_top_sales
+Get top-N salespeople for a region and report date, returned as a markdown table.
+
+**Parameters:**
+- `top_n` (integer, required): Number of top salespeople to return
+- `region_name` (string, required): One of `AP`, `BRAZIL`, `EMEA`, `LAS`, `MX`, `NA`
+- `report_date` (string, required): Date in `YYYYMMDD` format
+
+**Example:**
+```python
+{
+  "top_n": 5,
+  "region_name": "NA",
+  "report_date": "20260131"
+}
+```
+
+**Response:**
+```markdown
+### Top Sales for NA (20260131)
+
+| Rank | Salesperson | FY2025Q1 | FY2025Q2 | Total Revenue ($M) |
+| --- | --- | --- | --- | --- |
+| 1 | Alice Johnson | 120.50 | 145.00 | 265.50 |
+| 2 | Bob Lee | 100.00 | 120.00 | 220.00 |
+```
+
 ## File Upload via MCP Resources
 
 Upload files using the MCP resources feature:
 
 ```python
 resource = {
-  "uri": "sales://input/raw_data_251103.xlsx",
+  "uri": "sales://input/raw_data_20251103.xlsx",
   "name": "Raw Sales Data",
   "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 }
@@ -106,8 +133,8 @@ The `get-result` tool returns structured data for future UI rendering:
 
 ## Input Format
 
-Files must match the pattern `raw_data_YYMMDD.xlsx` where:
-- YY = Year (last two digits)
+Files must match the pattern `raw_data_YYYYMMDD.xlsx` where:
+- YYYY = Year (four digits)
 - MM = Month
 - DD = Day
 
@@ -120,4 +147,4 @@ Required columns in Excel:
 
 ## Output
 
-Generated Excel files are saved in the `output/` directory with names like `result_YYMMDD.xlsx`.
+Generated Excel files are saved in the `output/` directory with names like `result_YYYYMMDD.xlsx`.
