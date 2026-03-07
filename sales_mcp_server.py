@@ -9,7 +9,7 @@ import re # for QUARTER_PATTERN
 from collections import defaultdict
 from pathlib import Path # Added missing import
 from typing import TYPE_CHECKING, NamedTuple, Callable, Dict, Iterable, List, Optional, Tuple
-from datetime import date # for quarter_sort_key
+from datetime import date, datetime # for quarter_sort_key
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Font # Added missing import
@@ -34,7 +34,8 @@ NUMBER_FORMAT = '[$$-409]#,##0.00'
 THINKSHIELD_VALUE = "ThinkShield Security"
 THINKSHIELD_VALUE_LOWER = THINKSHIELD_VALUE.lower()
 QUARTER_PATTERN = re.compile(r"^FY(?P<year>\d{4})Q(?P<quarter>\d)$")
-RAW_DATA_STEM_PATTERN = re.compile(r"^raw_data_(\d{6})$", re.IGNORECASE)
+RAW_DATA_STEM_PATTERN = re.compile(r"^raw_data_(\d{6}|\d{8})$", re.IGNORECASE)
+REPORT_DATE_PATTERN = re.compile(r"^\d{8}$")
 
 class SalesRow(NamedTuple):
     geo: str
@@ -349,20 +350,30 @@ def write_summary_sheet(
     worksheet.column_dimensions["B"].width = 70
 
 def extract_timestamp_from_stem(stem: str) -> str | None:
-    RAW_DATA_STEM_PATTERN = re.compile(r"^raw_data_(\d{6})$", re.IGNORECASE)
     match = RAW_DATA_STEM_PATTERN.match(stem)
-    if match:
-        return match.group(1)
-    return None
+    if not match:
+        return None
+
+    timestamp = match.group(1)
+    if len(timestamp) == 8:
+        try:
+            datetime.strptime(timestamp, "%Y%m%d")
+        except ValueError:
+            return None
+        return timestamp
+
+    try:
+        parsed = datetime.strptime(timestamp, "%y%m%d")
+    except ValueError:
+        return None
+    return parsed.strftime("%Y%m%d")
 
 def timestamp_to_date(timestamp: str) -> date:
-    if len(timestamp) != 6:
-        raise ValueError(f"Timestamp must have 6 digits, got {timestamp!r}.")
-    yy = int(timestamp[:2])
-    mm = int(timestamp[2:4])
-    dd = int(timestamp[4:])
-    year = 2000 + yy
-    return date(year, mm, dd)
+    if len(timestamp) == 8:
+        return datetime.strptime(timestamp, "%Y%m%d").date()
+    if len(timestamp) == 6:
+        return datetime.strptime(timestamp, "%y%m%d").date()
+    raise ValueError(f"Timestamp must have 6 or 8 digits, got {timestamp!r}.")
 
 def process_input_file(input_path: Path, output_dir: Path) -> tuple[Path, str]:
     """Process a single input file and generate result."""
@@ -373,7 +384,7 @@ def process_input_file(input_path: Path, output_dir: Path) -> tuple[Path, str]:
     if not timestamp:
         raise ValueError(
             f"Input file {input_path.name!r} does not match the expected pattern "
-            "'raw_data_YYMMDD.xlsx'."
+            "'raw_data_YYYYMMDD.xlsx'."
         )
 
     quarters, rows = load_sales_data(input_path)
@@ -489,6 +500,53 @@ def format_result_file(result_path: Path) -> str:
 
     return "\n".join(output_lines)
 
+
+def normalize_report_date(report_date: str) -> str:
+    """Validate report date in YYYYMMDD format."""
+    cleaned = report_date.strip()
+    if not REPORT_DATE_PATTERN.fullmatch(cleaned):
+        raise ValueError("report_date must be in YYYYMMDD format.")
+    datetime.strptime(cleaned, "%Y%m%d")
+    return cleaned
+
+
+def resolve_input_file(report_date: str) -> Path:
+    """Resolve raw input file path from a YYYYMMDD report date."""
+    timestamp_yyyymmdd = normalize_report_date(report_date)
+    timestamp_yymmdd = datetime.strptime(timestamp_yyyymmdd, "%Y%m%d").strftime("%y%m%d")
+    candidates = [
+        Path("input") / f"raw_data_{timestamp_yyyymmdd}.xlsx",
+        Path(f"raw_data_{timestamp_yyyymmdd}.xlsx"),
+        Path("input") / f"raw_data_{timestamp_yymmdd}.xlsx",
+        Path(f"raw_data_{timestamp_yymmdd}.xlsx"),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"No input file found for report_date={report_date}. "
+        f"Expected one of: {', '.join(str(path) for path in candidates)}"
+    )
+
+
+def render_top_sales_markdown(
+    region_name: str,
+    report_date: str,
+    quarters: List[str],
+    ranked_sales: List[Tuple[str, List[float], float]],
+) -> str:
+    """Render ranked sales rows as a markdown table."""
+    lines = [
+        f"### Top Sales for {region_name} ({report_date})",
+        "",
+        "| Rank | Salesperson | " + " | ".join(quarters) + " | Total Revenue ($M) |",
+        "| --- | --- | " + " | ".join(["---"] * len(quarters)) + " | --- |",
+    ]
+    for rank, (salesperson, quarter_values, total) in enumerate(ranked_sales, start=1):
+        quarter_cells = " | ".join(f"{value:,.2f}" for value in quarter_values)
+        lines.append(f"| {rank} | {salesperson} | {quarter_cells} | {total:,.2f} |")
+    return "\n".join(lines)
+
 def verify_authorization() -> str:
     """Verify the Authorization header and return the token or error message."""
     headers = get_http_headers()
@@ -518,7 +576,7 @@ def verify_authorization() -> str:
 
 mcp_app = FastMCP("sales-performance-analysis")
 
-@mcp_app.resource(uri="sales://input", name="Sales Data Input", description="Upload Excel files with sales data (raw_data_YYMMDD.xlsx)", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+@mcp_app.resource(uri="sales://input", name="Sales Data Input", description="Upload Excel files with sales data (raw_data_YYYYMMDD.xlsx)", mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 async def get_sales_input() -> str:
     """Resource for sales data input endpoint."""
     return "Use upload-input tool to upload files"
@@ -534,13 +592,13 @@ async def upload_input() -> str:
 
     return (
         f"Please visit: http://localhost:8004/\n"
-        f"Use the web interface to upload your raw_data_YYMMDD.xlsx file and view results.\n\n"
+        f"Use the web interface to upload your raw_data_YYYYMMDD.xlsx file and view results.\n\n"
         f"Authorization token: A valid per-user token is required to use this tool with external agents."
     )
 
-@mcp_app.tool(name="list-results")
+@mcp_app.tool(name="list-reports")
 async def list_results() -> str:
-    """List all available result files."""
+    """List all available reports of sales data."""
     auth_result = verify_authorization()
     if not auth_result.startswith("valid token"): # Check for valid token string
         return "Authorization failed: " + auth_result
@@ -553,7 +611,7 @@ async def list_results() -> str:
     if not result_files:
         return "No result files found. Upload and process a file first."
 
-    lines = ["Available Result Files:", "=" * 60]
+    lines = ["Available Report Files:", "=" * 60]
     for file_path in result_files:
         stat = file_path.stat()
         from datetime import datetime
@@ -568,9 +626,14 @@ async def list_results() -> str:
 
     return "\n".join(lines)
 
-@mcp_app.tool(name="get-result")
+@mcp_app.tool(name="get-report-content")
 async def get_result(file_name: str) -> str:
-    """Get formatted results from a specific result file."""
+    """
+    Get formatted content from a specific sales report file.
+
+    Args:
+        file_name (str): The name of the report file. Must be in "result_YYYYMMDD.xlsx" format.
+    """
     auth_result = verify_authorization()
     if not auth_result.startswith("valid token"): # Check for valid token string
         return "Authorization failed: " + auth_result
@@ -593,6 +656,58 @@ async def get_result(file_name: str) -> str:
         return result_text
     except Exception as e:
         return f"Error: Failed to format result: {e}"
+
+
+@mcp_app.tool(name="get_top_sales")
+async def get_top_sales(top_n: int, region_name: str, report_date: str) -> str:
+    """
+    Return top N salespeople for a region and report date as a markdown table.
+    args:
+        top_n: int
+        region_name: str
+        report_date: str, in YYYYMMDD format
+    """
+    auth_result = verify_authorization()
+    if not auth_result.startswith("valid token"):
+        return "Authorization failed: " + auth_result
+
+    if top_n <= 0:
+        return "Error: top_n must be a positive integer."
+
+    normalized_region = region_name.strip().upper()
+    valid_regions = sorted(TARGET_GEOS)
+    if normalized_region not in valid_regions:
+        return (
+            "Error: region_name must be one of: "
+            + ", ".join(valid_regions)
+        )
+
+    try:
+        input_path = resolve_input_file(report_date)
+        quarters, rows = load_sales_data(input_path)
+    except ValueError as exc:
+        return f"Error: {exc}"
+    except FileNotFoundError as exc:
+        return f"Error: {exc}"
+    except Exception as exc:
+        return f"Error: Failed to load data for report_date={report_date}: {exc}"
+
+    summary = summarize_sales(rows)
+    region_sales = []
+    for salesperson, quarter_map in summary.get(normalized_region, {}).items():
+        quarter_values = [quarter_map.get(q, 0.0) for q in quarters]
+        total = sum(quarter_values)
+        region_sales.append((salesperson, quarter_values, total))
+    region_sales.sort(key=lambda item: item[2], reverse=True)
+    top_sales = region_sales[:top_n]
+
+    if not top_sales:
+        return (
+            f"No sales data found for region '{normalized_region}' "
+            f"on report_date={report_date}."
+        )
+
+    return render_top_sales_markdown(normalized_region, report_date, quarters, top_sales)
 
 
 if __name__ == "__main__":

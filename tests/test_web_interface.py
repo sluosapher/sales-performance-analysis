@@ -52,7 +52,7 @@ def test_upload_invalid_filename(client):
 
         assert response.status_code == 200
         assert b"Invalid Filename" in response.data
-        assert b"raw_data_YYMMDD.xlsx" in response.data
+        assert b"raw_data_YYYYMMDD.xlsx" in response.data
     finally:
         temp_path.unlink()
 
