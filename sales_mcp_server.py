@@ -6,6 +6,8 @@ import asyncio
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 import re # for QUARTER_PATTERN
+import shutil
+import tempfile
 from collections import defaultdict
 from pathlib import Path # Added missing import
 from typing import TYPE_CHECKING, NamedTuple, Callable, Dict, Iterable, List, Optional, Tuple
@@ -391,7 +393,7 @@ def process_input_file(input_path: Path, output_dir: Path) -> tuple[Path, str]:
     if not quarters:
         raise ValueError("No quarter data found in the input workbook.")
 
-    output_filename = f"result_{timestamp}.xlsx"
+    output_filename = f"report_{timestamp}.xlsx"
     output_path = output_dir / output_filename
 
     workbook = load_or_create_workbook(output_path)
@@ -573,6 +575,29 @@ def verify_authorization() -> str:
     else:
         return f"invalid token: {token}"
 
+def select_input_file_for_upload() -> Path | None:
+    """Open a native file picker and return the selected file path."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:
+        raise RuntimeError(f"Unable to open file picker UI: {exc}") from exc
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        selected = filedialog.askopenfilename(
+            title="Select sales data file to upload",
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+        )
+    finally:
+        root.destroy()
+
+    if not selected:
+        return None
+    return Path(selected)
+
 
 mcp_app = FastMCP("sales-performance-analysis")
 
@@ -581,19 +606,92 @@ async def get_sales_input() -> str:
     """Resource for sales data input endpoint."""
     return "Use upload-input tool to upload files"
 
-@mcp_app.tool(name="upload-input")
-async def upload_input() -> str:
-    """Get link to upload Excel sales data file for processing."""
+@mcp_app.tool(name="upload-data")
+async def upload_data() -> str:
+    """Open file picker and upload selected data file to the server."""
 
     # verify the authorization token
     auth_result = verify_authorization()
     if not auth_result.startswith("valid token"): # Check for valid token string
         return "Authorization failed: " + auth_result
 
+    try:
+        selected_path = select_input_file_for_upload()
+    except RuntimeError as exc:
+        return f"Error: {exc}"
+
+    if selected_path is None:
+        return "No file selected. Upload canceled."
+
+    if selected_path.suffix.lower() != ".xlsx":
+        return "Error: Selected file must be an Excel .xlsx file."
+
+    if not extract_timestamp_from_stem(selected_path.stem):
+        return (
+            "Error: Selected filename must match "
+            "'raw_data_YYYYMMDD.xlsx'."
+        )
+
+    if not selected_path.exists():
+        return f"Error: Selected file does not exist: {selected_path}"
+
+    input_dir = Path("input")
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="mcp-upload-"))
+    try:
+        staged_input_path = temp_dir / selected_path.name
+        shutil.copy2(selected_path, staged_input_path)
+        server_input_path = input_dir / selected_path.name
+        shutil.copy2(staged_input_path, server_input_path)
+
+        timestamp = extract_timestamp_from_stem(selected_path.stem)
+    except Exception as exc:
+        return f"Error: Failed to upload selected file: {exc}"
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
     return (
-        f"Please visit: http://localhost:8004/\n"
-        f"Use the web interface to upload your raw_data_YYYYMMDD.xlsx file and view results.\n\n"
-        f"Authorization token: A valid per-user token is required to use this tool with external agents."
+        "File uploaded successfully!\n"
+        f"Input: {selected_path.name}\n"
+        f"Timestamp: {timestamp}\n"
+        f"View input: http://localhost:8004/view-input/{selected_path.name}"
+    )
+
+@mcp_app.tool(name="analyze_input_data")
+async def analyze_input_data(file_name: str) -> str:
+    """Analyze sales data from the uploaded file and generate sales performance report."""
+    auth_result = verify_authorization()
+    if not auth_result.startswith("valid token"):
+        return "Authorization failed: " + auth_result
+
+    sanitized_name = Path(file_name).name
+    if not sanitized_name.endswith(".xlsx"):
+        return "Error: Input file must be an Excel .xlsx file."
+
+    if not extract_timestamp_from_stem(Path(sanitized_name).stem):
+        return "Error: Input filename must match 'raw_data_YYYYMMDD.xlsx'."
+
+    input_path = Path("input") / sanitized_name
+    if not input_path.exists():
+        return f"Error: Input file not found on server: {sanitized_name}"
+
+    output_dir = Path("output")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        output_path, timestamp = process_input_file(input_path, output_dir)
+    except ValueError as exc:
+        return f"Error processing input file: {exc}"
+    except Exception as exc:
+        return f"Error: Failed to analyze input file: {exc}"
+
+    return (
+        "Input file analyzed successfully!\n"
+        f"Input: {sanitized_name}\n"
+        f"Output: {output_path.name}\n"
+        f"Timestamp: {timestamp}\n"
+        f"View report: http://localhost:8004/view-result/{output_path.name}"
     )
 
 @mcp_app.tool(name="list-reports")
@@ -606,7 +704,7 @@ async def list_results() -> str:
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    result_files = sorted(output_dir.glob("result_*.xlsx"))
+    result_files = sorted(output_dir.glob("report_*.xlsx"))
 
     if not result_files:
         return "No result files found. Upload and process a file first."
@@ -626,13 +724,13 @@ async def list_results() -> str:
 
     return "\n".join(lines)
 
-@mcp_app.tool(name="get-report-content")
-async def get_result(file_name: str) -> str:
+@mcp_app.tool(name="view-report-content")
+async def view_report(file_name: str) -> str:
     """
     Get formatted content from a specific sales report file.
 
     Args:
-        file_name (str): The name of the report file. Must be in "result_YYYYMMDD.xlsx" format.
+        file_name (str): The name of the report file. Must be in "report_YYYYMMDD.xlsx" format.
     """
     auth_result = verify_authorization()
     if not auth_result.startswith("valid token"): # Check for valid token string
@@ -641,14 +739,14 @@ async def get_result(file_name: str) -> str:
     if not file_name.endswith(".xlsx"):
         return "Error: File must be an Excel .xlsx file"
 
-    if not file_name.startswith("result_"):
-        return "Error: Result file name must start with 'result_'"
+    if not file_name.startswith("report_"):
+        return "Error: Result file name must start with 'report_'"
 
     output_dir = Path("output")
     result_path = output_dir / file_name
 
     if not result_path.exists():
-        available = [f.name for f in output_dir.glob("result_*.xlsx")]
+        available = [f.name for f in output_dir.glob("report_*.xlsx")]
         return f"Error: File {file_name} not found.\nAvailable: {', '.join(available)}"
 
     try:
