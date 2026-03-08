@@ -520,17 +520,42 @@ def format_input_file(input_path: Path, max_rows_per_sheet: int = 200) -> str:
         output_lines.append(f"Sheet: {sheet_name}")
         output_lines.append("-" * 80)
 
-        rows_written = 0
+        rows: List[List[str]] = []
+        was_truncated = False
         for row in worksheet.iter_rows(values_only=True):
-            if rows_written >= max_rows_per_sheet:
-                output_lines.append(f"... truncated after {max_rows_per_sheet} rows ...")
+            if len(rows) >= max_rows_per_sheet:
+                was_truncated = True
                 break
-            values = ["" if value is None else str(value) for value in row]
-            output_lines.append(" | ".join(values))
-            rows_written += 1
+            values = ["" if value is None else str(value).replace("\n", " ").strip() for value in row]
+            rows.append(values)
 
-        if rows_written == 0:
+        if not rows:
             output_lines.append("(empty sheet)")
+            output_lines.append("")
+            continue
+
+        max_cols = max(len(row) for row in rows)
+        for row in rows:
+            row.extend([""] * (max_cols - len(row)))
+
+        col_widths = [
+            max(len(row[col_index]) for row in rows)
+            for col_index in range(max_cols)
+        ]
+        separator = "+-" + "-+-".join("-" * width for width in col_widths) + "-+"
+
+        output_lines.append(separator)
+        for row_index, row in enumerate(rows):
+            rendered_row = "| " + " | ".join(
+                row[col_index].ljust(col_widths[col_index]) for col_index in range(max_cols)
+            ) + " |"
+            output_lines.append(rendered_row)
+            if row_index == 0:
+                output_lines.append(separator)
+        output_lines.append(separator)
+
+        if was_truncated:
+            output_lines.append(f"... truncated after {max_rows_per_sheet} rows ...")
         output_lines.append("")
 
     workbook.close()

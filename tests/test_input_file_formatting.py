@@ -24,7 +24,10 @@ def test_format_input_file_includes_sheet_headers_and_rows(tmp_path: Path) -> No
     assert "RAW SALES INPUT DATA" in formatted
     assert "Sheet: SalesData" in formatted
     assert "Geo | FTF_Name | Revenue ($M)" in formatted
-    assert "NA | Alice | 12.5" in formatted
+    data_line = next(
+        line for line in formatted.splitlines() if "NA" in line and "Alice" in line
+    )
+    assert "12.5" in data_line
 
 
 def test_format_input_file_respects_max_rows_per_sheet(tmp_path: Path) -> None:
@@ -44,3 +47,24 @@ def test_format_input_file_respects_max_rows_per_sheet(tmp_path: Path) -> None:
     assert "3" in formatted
     assert "... truncated after 3 rows ..." in formatted
     assert "4" not in formatted
+
+
+def test_format_input_file_aligns_columns_for_readability(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "raw_data_20260131.xlsx"
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Aligned"
+    sheet.append(["Geo", "FTF_Name", "Revenue ($M)"])
+    sheet.append(["NA", "Al", 1.0])
+    sheet.append(["EMEA", "VeryLongSalesName", 1234.56])
+    workbook.save(workbook_path)
+
+    formatted = format_input_file(workbook_path)
+    lines = formatted.splitlines()
+
+    header_line = next(line for line in lines if "Geo" in line and "FTF_Name" in line)
+    row_one = next(line for line in lines if "NA" in line and "Al" in line)
+    row_two = next(line for line in lines if "EMEA" in line and "VeryLongSalesName" in line)
+
+    # All rows should have identical width when rendered as fixed-width columns.
+    assert len(header_line) == len(row_one) == len(row_two)
