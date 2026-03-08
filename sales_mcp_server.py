@@ -503,6 +503,40 @@ def format_result_file(result_path: Path) -> str:
     return "\n".join(output_lines)
 
 
+def format_input_file(input_path: Path, max_rows_per_sheet: int = 200) -> str:
+    """Format raw input workbook into human-readable text for browser viewing."""
+    workbook = load_workbook(input_path, data_only=True, read_only=True)
+    output_lines = []
+
+    output_lines.append("=" * 80)
+    output_lines.append("RAW SALES INPUT DATA")
+    output_lines.append(f"File: {input_path.name}")
+    output_lines.append("=" * 80)
+    output_lines.append("")
+
+    for sheet_name in workbook.sheetnames:
+        worksheet = workbook[sheet_name]
+        output_lines.append("-" * 80)
+        output_lines.append(f"Sheet: {sheet_name}")
+        output_lines.append("-" * 80)
+
+        rows_written = 0
+        for row in worksheet.iter_rows(values_only=True):
+            if rows_written >= max_rows_per_sheet:
+                output_lines.append(f"... truncated after {max_rows_per_sheet} rows ...")
+                break
+            values = ["" if value is None else str(value) for value in row]
+            output_lines.append(" | ".join(values))
+            rows_written += 1
+
+        if rows_written == 0:
+            output_lines.append("(empty sheet)")
+        output_lines.append("")
+
+    workbook.close()
+    return "\n".join(output_lines)
+
+
 def normalize_report_date(report_date: str) -> str:
     """Validate report date in YYYYMMDD format."""
     cleaned = report_date.strip()
