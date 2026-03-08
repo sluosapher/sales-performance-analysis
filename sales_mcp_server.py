@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from openpyxl import Workbook
     from openpyxl.worksheet.worksheet import Worksheet
 
-from mcp.types import Tool, Resource
+from fastmcp.tools.tool import ToolResult
+from mcp.types import TextContent
 from models import User # Import the User model
 
 TARGET_GEOS = ["AP", "BRAZIL", "EMEA", "LAS", "MX", "NA"]
@@ -36,6 +37,7 @@ THINKSHIELD_VALUE_LOWER = THINKSHIELD_VALUE.lower()
 QUARTER_PATTERN = re.compile(r"^FY(?P<year>\d{4})Q(?P<quarter>\d)$")
 RAW_DATA_STEM_PATTERN = re.compile(r"^raw_data_(\d{6}|\d{8})$", re.IGNORECASE)
 REPORT_DATE_PATTERN = re.compile(r"^\d{8}$")
+TOP_SALES_UI_RESOURCE_URI = "ui://sales-performance-analysis/top-sales-chart"
 
 class SalesRow(NamedTuple):
     geo: str
@@ -547,6 +549,213 @@ def render_top_sales_markdown(
         lines.append(f"| {rank} | {salesperson} | {quarter_cells} | {total:,.2f} |")
     return "\n".join(lines)
 
+
+def get_top_sales_ui_html() -> str:
+    """Return the UI template used by MCP clients to render top-sales charts."""
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Top Sales Chart</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --axis: #d1d5db;
+      --brand: #0f766e;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .wrap {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      box-shadow: 0 6px 18px rgba(31, 41, 55, 0.06);
+      padding: 16px;
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+    .meta {
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 10px 0 14px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+    }
+    svg {
+      width: 100%;
+      height: auto;
+      background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+      border: 1px solid #edf2f7;
+      border-radius: 10px;
+    }
+    .empty {
+      color: var(--muted);
+      padding: 24px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 id="title">Top Sales</h1>
+      <div id="meta" class="meta">Waiting for tool data...</div>
+      <div id="legend" class="legend"></div>
+      <div id="chart"></div>
+      <div id="empty" class="empty" hidden>No chart data received.</div>
+    </div>
+  </div>
+  <script>
+    const palette = [
+      "#0f766e", "#2563eb", "#f59e0b", "#ef4444", "#7c3aed",
+      "#059669", "#0284c7", "#ea580c", "#16a34a", "#9333ea"
+    ];
+
+    function formatM(value) {
+      return `${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}M`;
+    }
+
+    function normalizePayload(payload) {
+      if (!payload) return null;
+      if (payload.structuredContent) return payload.structuredContent;
+      return payload;
+    }
+
+    function getInitialPayload() {
+      if (window.__MCP_TOOL_RESULT__) {
+        return normalizePayload(window.__MCP_TOOL_RESULT__);
+      }
+      if (window.mcp && window.mcp.toolResult) {
+        return normalizePayload(window.mcp.toolResult);
+      }
+      return null;
+    }
+
+    function render(payload) {
+      const data = normalizePayload(payload);
+      const chartContainer = document.getElementById("chart");
+      const empty = document.getElementById("empty");
+      const legend = document.getElementById("legend");
+      chartContainer.innerHTML = "";
+      legend.innerHTML = "";
+
+      if (!data || !Array.isArray(data.rows) || data.rows.length === 0) {
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+
+      const quarters = Array.isArray(data.quarters) ? data.quarters : [];
+      const rows = data.rows;
+      document.getElementById("title").textContent = `Top ${data.topN} Sales - ${data.region}`;
+      document.getElementById("meta").textContent = `Report Date: ${data.reportDate} | Values in $M`;
+
+      quarters.forEach((quarter, idx) => {
+        const item = document.createElement("div");
+        item.className = "legend-item";
+        item.innerHTML = `<span class="swatch" style="background:${palette[idx % palette.length]}"></span>${quarter}`;
+        legend.appendChild(item);
+      });
+
+      const rowHeight = 34;
+      const leftPad = 140;
+      const rightPad = 90;
+      const topPad = 24;
+      const width = 980;
+      const height = topPad + (rows.length * rowHeight) + 16;
+      const plotWidth = width - leftPad - rightPad;
+      const maxTotal = Math.max(...rows.map((r) => Number(r.total) || 0), 1);
+
+      const NS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(NS, "svg");
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", "Stacked revenue chart by salesperson");
+
+      rows.forEach((row, idx) => {
+        const y = topPad + (idx * rowHeight);
+        const name = document.createElementNS(NS, "text");
+        name.setAttribute("x", "10");
+        name.setAttribute("y", String(y + 18));
+        name.setAttribute("fill", "#334155");
+        name.setAttribute("font-size", "12");
+        name.textContent = `${row.rank}. ${row.salesperson}`;
+        svg.appendChild(name);
+
+        let x = leftPad;
+        const values = Array.isArray(row.quarterValues) ? row.quarterValues : [];
+        values.forEach((value, qIdx) => {
+          const v = Number(value) || 0;
+          const w = (v / maxTotal) * plotWidth;
+          if (w <= 0) return;
+          const rect = document.createElementNS(NS, "rect");
+          rect.setAttribute("x", String(x));
+          rect.setAttribute("y", String(y + 6));
+          rect.setAttribute("width", String(w));
+          rect.setAttribute("height", "14");
+          rect.setAttribute("rx", "2");
+          rect.setAttribute("fill", palette[qIdx % palette.length]);
+          rect.setAttribute("opacity", "0.92");
+          rect.setAttribute("title", `${quarters[qIdx] || "Quarter"}: ${formatM(v)}`);
+          svg.appendChild(rect);
+          x += w;
+        });
+
+        const total = Number(row.total) || 0;
+        const totalText = document.createElementNS(NS, "text");
+        totalText.setAttribute("x", String(leftPad + ((total / maxTotal) * plotWidth) + 8));
+        totalText.setAttribute("y", String(y + 18));
+        totalText.setAttribute("fill", "#0f172a");
+        totalText.setAttribute("font-size", "12");
+        totalText.textContent = formatM(total);
+        svg.appendChild(totalText);
+      });
+
+      chartContainer.appendChild(svg);
+    }
+
+    window.addEventListener("message", (event) => {
+      if (!event.data) return;
+      if (event.data.structuredContent || event.data.rows) {
+        render(event.data);
+      }
+    });
+
+    render(getInitialPayload());
+  </script>
+</body>
+</html>"""
+
 def verify_authorization() -> str:
     """Verify the Authorization header and return the token or error message."""
     headers = get_http_headers()
@@ -580,6 +789,17 @@ mcp_app = FastMCP("sales-performance-analysis")
 async def get_sales_input() -> str:
     """Resource for sales data input endpoint."""
     return "Use upload-input tool to upload files"
+
+
+@mcp_app.resource(
+    uri=TOP_SALES_UI_RESOURCE_URI,
+    name="Top Sales Chart UI",
+    description="UI resource template for rendering top-sales revenue chart.",
+    mime_type="text/html;profile=mcp-app",
+)
+async def get_top_sales_chart_ui() -> str:
+    """Resource used by MCP clients to render top-sales chart UI."""
+    return get_top_sales_ui_html()
 
 @mcp_app.tool(name="upload-input")
 async def upload_input() -> str:
@@ -658,8 +878,11 @@ async def get_result(file_name: str) -> str:
         return f"Error: Failed to format result: {e}"
 
 
-@mcp_app.tool(name="get_top_sales")
-async def get_top_sales(top_n: int, region_name: str, report_date: str) -> str:
+@mcp_app.tool(
+    name="get_top_sales",
+    meta={"ui": {"resourceUri": TOP_SALES_UI_RESOURCE_URI}},
+)
+async def get_top_sales(top_n: int, region_name: str, report_date: str) -> ToolResult | str:
     """
     Return top N salespeople for a region and report date as a markdown table.
     args:
@@ -707,7 +930,37 @@ async def get_top_sales(top_n: int, region_name: str, report_date: str) -> str:
             f"on report_date={report_date}."
         )
 
-    return render_top_sales_markdown(normalized_region, report_date, quarters, top_sales)
+    markdown = render_top_sales_markdown(
+        normalized_region, report_date, quarters, top_sales
+    )
+    rows = [
+        {
+            "rank": rank,
+            "salesperson": salesperson,
+            "quarterValues": [round(value, 4) for value in quarter_values],
+            "total": round(total, 4),
+        }
+        for rank, (salesperson, quarter_values, total) in enumerate(top_sales, start=1)
+    ]
+    structured_payload = {
+        "region": normalized_region,
+        "reportDate": report_date,
+        "topN": top_n,
+        "quarters": quarters,
+        "rows": rows,
+    }
+    return ToolResult(
+        content=[TextContent(type="text", text=markdown)],
+        structured_content=structured_payload,
+        meta={
+            "ui": {"resourceUri": TOP_SALES_UI_RESOURCE_URI},
+            "chart": {
+                "type": "stacked_bar",
+                "title": f"Top {top_n} Sales - {normalized_region}",
+                "unit": "$M",
+            },
+        },
+    )
 
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ SHEET: Top 10 Sales by Geo
 ```
 
 ### 4. get_top_sales
-Get top-N salespeople for a region and report date, returned as a markdown table.
+Get top-N salespeople for a region and report date. Returns markdown + structured chart data and a UI resource URI.
 
 **Parameters:**
 - `top_n` (integer, required): Number of top salespeople to return
@@ -94,14 +94,33 @@ Get top-N salespeople for a region and report date, returned as a markdown table
 }
 ```
 
-**Response:**
-```markdown
-### Top Sales for NA (20260131)
+**Response (conceptual shape):**
+```python
+{
+  "content": [
+    {"type": "text", "text": "### Top Sales for NA (20260131)\n...markdown table..."}
+  ],
+  "structuredContent": {
+    "region": "NA",
+    "reportDate": "20260131",
+    "topN": 5,
+    "quarters": ["FY2025Q1", "FY2025Q2"],
+    "rows": [
+      {"rank": 1, "salesperson": "Alice Johnson", "quarterValues": [120.5, 145.0], "total": 265.5}
+    ]
+  },
+  "_meta": {
+    "ui": {"resourceUri": "ui://sales-performance-analysis/top-sales-chart"}
+  }
+}
+```
 
-| Rank | Salesperson | FY2025Q1 | FY2025Q2 | Total Revenue ($M) |
-| --- | --- | --- | --- | --- |
-| 1 | Alice Johnson | 120.50 | 145.00 | 265.50 |
-| 2 | Bob Lee | 100.00 | 120.00 | 220.00 |
+### 5. UI Resource for get_top_sales
+
+The chart UI is served as an MCP resource and should be fetched via `resources/read` by URI:
+
+```text
+ui://sales-performance-analysis/top-sales-chart
 ```
 
 ## File Upload via MCP Resources
@@ -116,20 +135,7 @@ resource = {
 }
 ```
 
-## Future Compatibility
-
-The `get-result` tool returns structured data for future UI rendering:
-
-```python
-{
-  "text": "Human-readable formatted output",
-  "structured": {
-    "sheets": [...],
-    "metadata": {...}
-  },
-  "ui_resources": [...]  # Future: charts, graphs, etc.
-}
-```
+This keeps large HTML/CSS/JS out of tool text output and out of model-visible chat context.
 
 ## Input Format
 
