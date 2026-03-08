@@ -7,30 +7,47 @@ This MCP server processes Excel sales data files and generates formatted reports
 
 ## Tools
 
-### 1. upload-input
-Upload an Excel sales data file for processing.
+### 1. upload-data
+Open a native file selection dialog and upload the selected Excel sales data file to the server.
+
+**Parameters:** None
+
+**Example:**
+```python
+{}
+```
+
+**Response:**
+```
+File uploaded successfully!
+Input: raw_data_20260131.xlsx
+Timestamp: 20260131
+View input: http://localhost:8004/view-input/raw_data_20260131.xlsx
+```
+
+### 2. analyze_input_data
+Analyze an uploaded server-side input file and generate a report.
 
 **Parameters:**
-- `file_name` (string, required): Name of file (must match `raw_data_YYYYMMDD.xlsx`)
-- `content` (string, required): Base64-encoded Excel file content
+- `file_name` (string, required): Server-side input filename (must match `raw_data_YYYYMMDD.xlsx`)
 
 **Example:**
 ```python
 {
-  "file_name": "raw_data_20251103.xlsx",
-  "content": "UEsDBBQABgAIAAAAIQCL1rvzRwEAABAE..."
+  "file_name": "raw_data_20260131.xlsx"
 }
 ```
 
 **Response:**
 ```
-File processed successfully!
-Input: raw_data_20251103.xlsx
-Output: result_20251103.xlsx
-Timestamp: 20251103
+Input file analyzed successfully!
+Input: raw_data_20260131.xlsx
+Output: report_20260131.xlsx
+Timestamp: 20260131
+View report: http://localhost:8004/view-result/report_20260131.xlsx
 ```
 
-### 2. list-results
+### 3. list-results
 List all available result files.
 
 **Parameters:** None
@@ -44,12 +61,12 @@ List all available result files.
 ```
 Available Result Files:
 ============================================================
-  result_20251103.xlsx
+  report_20251103.xlsx
     Modified: 2026-01-27 15:30:00
     Size: 45.2 KB
 ```
 
-### 3. get-result
+### 4. get-result
 Get formatted results from a specific result file.
 
 **Parameters:**
@@ -58,7 +75,7 @@ Get formatted results from a specific result file.
 **Example:**
 ```python
 {
-  "file_name": "result_20251103.xlsx"
+  "file_name": "report_20251103.xlsx"
 }
 ```
 
@@ -66,7 +83,7 @@ Get formatted results from a specific result file.
 ```
 ================================================================================
 SALES PERFORMANCE ANALYSIS REPORT
-File: result_20251103.xlsx
+File: report_20251103.xlsx
 ================================================================================
 
 --------------------------------------------------------------------------------
@@ -77,7 +94,7 @@ SHEET: Top 10 Sales by Geo
   ...
 ```
 
-### 4. get_top_sales
+### 5. get_top_sales
 Get top-N salespeople for a region and report date, returned as a markdown table.
 
 **Parameters:**
@@ -104,17 +121,9 @@ Get top-N salespeople for a region and report date, returned as a markdown table
 | 2 | Bob Lee | 100.00 | 120.00 | 220.00 |
 ```
 
-## File Upload via MCP Resources
+## File Upload via MCP Tool
 
-Upload files using the MCP resources feature:
-
-```python
-resource = {
-  "uri": "sales://input/raw_data_20251103.xlsx",
-  "name": "Raw Sales Data",
-  "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-}
-```
+Use `upload-data` and select a local file in the OS file picker dialog. Then call `analyze_input_data` with the uploaded filename.
 
 ## Future Compatibility
 
@@ -147,4 +156,4 @@ Required columns in Excel:
 
 ## Output
 
-Generated Excel files are saved in the `output/` directory with names like `result_YYYYMMDD.xlsx`.
+Generated Excel files are saved in the `output/` directory with names like `report_YYYYMMDD.xlsx`.

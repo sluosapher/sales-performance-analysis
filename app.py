@@ -353,7 +353,7 @@ def list_results():
     """List all available result files and allow viewing/downloading."""
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
-    result_files = sorted(output_dir.glob("result_*.xlsx"), key=os.path.getmtime, reverse=True)
+    result_files = sorted(output_dir.glob("report_*.xlsx"), key=os.path.getmtime, reverse=True)
 
     files_info = []
     for file_path in result_files:
@@ -387,6 +387,24 @@ def view_result(filename):
     except Exception as e:
         flash(f"Error: Failed to format result: {e}", 'danger')
         return redirect(url_for('error', error_title="Formatting Error", error_message=f"Failed to format result: {e}"))
+
+@app.route("/view-input/<string:filename>")
+@login_required
+@require_upload_permission
+def view_input(filename):
+    """Download/view a previously uploaded input workbook."""
+    safe_name = Path(filename).name
+    input_path = Path("input") / safe_name
+
+    if not input_path.exists():
+        flash(f"Input file {safe_name} not found.", 'danger')
+        return redirect(url_for('error', error_title="File Not Found", error_message=f"Input file {safe_name} not found."))
+
+    if not safe_name.endswith(".xlsx") or not extract_timestamp_from_stem(Path(safe_name).stem):
+        flash("Invalid input file name.", 'danger')
+        return redirect(url_for('error', error_title="Invalid Filename", error_message="Input filename must match raw_data_YYYYMMDD.xlsx."))
+
+    return send_file(str(input_path), as_attachment=False)
 
 @app.route("/download/<path:filename>")
 @login_required
