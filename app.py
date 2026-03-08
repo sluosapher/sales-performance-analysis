@@ -6,16 +6,14 @@ from datetime import timedelta, datetime
 import os
 import uuid
 from pathlib import Path
-import tempfile
 from werkzeug.utils import secure_filename
-import shutil
 
 # Import models
 from models import db, User
 from forms import LoginForm, PasswordChangeForm, UserForm, UserEditForm, PasswordResetForm, TokenRegenerateForm
 
 # Import sales processing functions from sales_mcp_server
-from sales_mcp_server import process_input_file, format_result_file, extract_timestamp_from_stem
+from sales_mcp_server import process_input_file, format_result_file, format_input_file, extract_timestamp_from_stem
 
 app = Flask(__name__, template_folder="templates")
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -304,9 +302,10 @@ def upload_file():
             return redirect(url_for('error', error_title="Invalid Filename", error_message=f"Filename must match pattern: raw_data_YYYYMMDD.xlsx. Got: {file.filename}"))
 
         try:
-            # Save uploaded file to temporary location
-            temp_dir = Path(tempfile.mkdtemp())
-            input_path = temp_dir / secure_filename(file.filename)
+            # Persist uploaded input for later browser view/download.
+            input_dir = Path("input")
+            input_dir.mkdir(parents=True, exist_ok=True)
+            input_path = input_dir / secure_filename(file.filename)
             file.save(str(input_path))
 
             # Process the file
@@ -338,10 +337,6 @@ def upload_file():
             flash(f"An unexpected error occurred: {str(e)}", 'danger')
             return redirect(url_for('error', error_title="Unexpected Error", error_message=f"An unexpected error occurred: {e}"))
 
-        finally:
-            if "temp_dir" in locals():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-
     else:
         flash("Please upload an Excel file (.xlsx) with the correct filename pattern (raw_data_YYYYMMDD.xlsx).", 'danger')
         return redirect(url_for('error', error_title="Invalid File Type", error_message="Please upload an Excel file (.xlsx) with the correct filename pattern (raw_data_YYYYMMDD.xlsx)."))
@@ -350,24 +345,49 @@ def upload_file():
 @login_required
 @require_list_permission
 def list_results():
-    """List all available result files and allow viewing/downloading."""
+    """List available result and raw input files for browser viewing/downloading."""
     output_dir = Path("output")
     output_dir.mkdir(parents=True, exist_ok=True)
-    result_files = sorted(output_dir.glob("report_*.xlsx"), key=os.path.getmtime, reverse=True)
+    input_dir = Path("input")
+    input_dir.mkdir(parents=True, exist_ok=True)
 
-    files_info = []
+    result_files = sorted(output_dir.glob("report_*.xlsx"), key=os.path.getmtime, reverse=True)
+    input_files = sorted(input_dir.glob("raw_data_*.xlsx"), key=os.path.getmtime, reverse=True)
+
+    result_files_info = []
     for file_path in result_files:
         stat = file_path.stat()
         mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         size_kb = stat.st_size / 1024
-        files_info.append({
+        result_files_info.append({
             'name': file_path.name,
             'modified': mod_time,
             'size': f"{size_kb:.1f} KB",
             'download_url': url_for('download_file', filename=file_path.name),
             'view_url': url_for('view_result', filename=file_path.name)
         })
-    return render_template('list_results.html', files=files_info, title='Available Result Files')
+
+    input_files_info = []
+    for file_path in input_files:
+        if not extract_timestamp_from_stem(file_path.stem):
+            continue
+        stat = file_path.stat()
+        mod_time = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        size_kb = stat.st_size / 1024
+        input_files_info.append({
+            'name': file_path.name,
+            'modified': mod_time,
+            'size': f"{size_kb:.1f} KB",
+            'download_url': url_for('download_input_file', filename=file_path.name),
+            'view_url': url_for('view_input', filename=file_path.name)
+        })
+
+    return render_template(
+        'list_results.html',
+        report_files=result_files_info,
+        input_files=input_files_info,
+        title='Available Files'
+    )
 
 @app.route("/view-result/<string:filename>")
 @login_required
@@ -390,9 +410,9 @@ def view_result(filename):
 
 @app.route("/view-input/<string:filename>")
 @login_required
-@require_upload_permission
+@require_list_permission
 def view_input(filename):
-    """Download/view a previously uploaded input workbook."""
+    """View formatted raw input data from a specific input workbook."""
     safe_name = Path(filename).name
     input_path = Path("input") / safe_name
 
@@ -404,7 +424,35 @@ def view_input(filename):
         flash("Invalid input file name.", 'danger')
         return redirect(url_for('error', error_title="Invalid Filename", error_message="Input filename must match raw_data_YYYYMMDD.xlsx."))
 
-    return send_file(str(input_path), as_attachment=False)
+    try:
+        input_text = format_input_file(input_path)
+        return render_template(
+            'view_input.html',
+            filename=safe_name,
+            input_text=input_text,
+            title=f'View Raw Input: {safe_name}'
+        )
+    except Exception as e:
+        flash(f"Error: Failed to format input data: {e}", 'danger')
+        return redirect(url_for('error', error_title="Formatting Error", error_message=f"Failed to format input data: {e}"))
+
+@app.route("/download-input/<path:filename>")
+@login_required
+@require_list_permission
+def download_input_file(filename):
+    """Download a raw input workbook."""
+    safe_name = Path(filename).name
+    input_path = Path("input") / safe_name
+
+    if not input_path.exists():
+        flash(f"Input file {safe_name} not found.", 'danger')
+        return redirect(url_for('error', error_title="File Not Found", error_message="The requested input file could not be found."))
+
+    if not safe_name.endswith(".xlsx") or not extract_timestamp_from_stem(Path(safe_name).stem):
+        flash("Invalid input file name.", 'danger')
+        return redirect(url_for('error', error_title="Invalid Filename", error_message="Input filename must match raw_data_YYYYMMDD.xlsx."))
+
+    return send_file(str(input_path), as_attachment=True)
 
 @app.route("/download/<path:filename>")
 @login_required

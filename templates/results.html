@@ -13,10 +13,12 @@
             <p><strong>Input File:</strong> {{ filename }}</p>
             <p><strong>Timestamp:</strong> {{ timestamp }}</p>
             <p><strong>Generated:</strong> {{ generated_date }}</p>
+            <p><strong>Raw Input View:</strong> <a href="{{ url_for('view_input', filename=filename) }}" style="color: #2196F3;">{{ filename }}</a></p>
             <p><strong>Excel Report:</strong> <a href="/download/{{ result_filename }}" style="color: #2196F3;">{{ result_filename }}</a></p>
         </div>
         <div class="download-section">
             <a href="/download/{{ result_filename }}" class="btn-primary">Download Excel Report</a>
+            <a href="{{ url_for('download_input_file', filename=filename) }}" class="btn-primary">Download Raw Input</a>
             <a href="/" class="btn-secondary">Upload Another File</a>
         </div>
         <div class="results-section">
